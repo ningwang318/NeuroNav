@@ -195,7 +195,7 @@ class Workspace(gl.GLViewWidget):
             return
         if volume is not self.phantom_mri:
             valid=self.isValid()
-            with gl_context(self):
+            with gl_context(self, restore_previous=False, skip_if_current=False):
                 for item in self.phantom_items:
                     if valid:
                         delete_gl_resources(item)
@@ -213,7 +213,7 @@ class Workspace(gl.GLViewWidget):
             item=ClippedVolume(rgba)
             item.cut_enabled=False
             item.setDepthValue(10)  # Draw after the opaque table and robot.
-            with gl_context(self):
+            with gl_context(self, restore_previous=False, skip_if_current=False):
                 self.addItem(item)
             item.setVisible(False)
             self.phantom_items=[item]

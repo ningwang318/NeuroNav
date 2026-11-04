@@ -3,6 +3,7 @@
 No Qt or OpenGL. The 3D views (neuronav.ui.mri_3d) and the tracked head model use these.
 """
 import numpy as np
+from scipy.ndimage import map_coordinates, zoom
 
 PLANE_AXES={'axial':2,'coronal':1,'sagittal':0}
 FACE_AXES={'axial':(0,1),'coronal':(0,2),'sagittal':(1,2)}
@@ -86,7 +87,6 @@ def point_on_plane_in_volume(volume,normal,offset,anchor):
 
 def oblique_face(volume,point,normal,max_axis=768):
     """Trilinear reslice in a physical-space plane; no source voxels change."""
-    from scipy.ndimage import map_coordinates
     normal=np.asarray(normal,dtype=float)
     normal/=np.linalg.norm(normal)
     seed=np.array([0.,0.,1.]) if abs(normal[2])<.95 else np.array([0.,1.,0.])
@@ -126,7 +126,6 @@ def oblique_clip_equation(volume,shape,point,normal,reverse=False):
 
 
 def preview_data(volume,max_axis=192):
-    from scipy.ndimage import zoom
     shape=np.array(volume.data.shape)
     factor=min(1.,max_axis/shape.max())
     target=np.maximum(2,np.rint(shape*factor).astype(int))

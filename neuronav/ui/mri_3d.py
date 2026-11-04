@@ -144,7 +144,7 @@ class MRI3DView(gl.GLViewWidget):
     def clear_volume(self):
         # GLVolumeItem uses legacy display lists; release them on reload.
         valid=self.isValid()
-        with gl_context(self):
+        with gl_context(self, restore_previous=False, skip_if_current=False):
             for item in [self.volume_item,self.face_item]:
                 if item is None:
                     continue

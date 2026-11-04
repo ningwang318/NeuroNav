@@ -11,25 +11,26 @@ from PySide6 import QtGui
 
 
 @contextmanager
-def gl_context(view):
-    """Make ``view``'s GL context current, then restore whatever was current before.
+def gl_context(view, restore_previous=True, skip_if_current=True):
+    """Make ``view``'s GL context current for the block (no-op for an invalid view).
 
-    No-op when the view has no valid context yet, or its context is already current.
+    restore_previous: afterwards re-activate the context that was current before.
+    skip_if_current: do nothing when ``view``'s own context is already current.
     """
     if not view.isValid():
         yield
         return
-    previous = QtGui.QOpenGLContext.currentContext()
-    if previous == view.context():
+    previous = QtGui.QOpenGLContext.currentContext() if (restore_previous or skip_if_current) else None
+    if skip_if_current and previous == view.context():
         yield
         return
-    surface = previous.surface() if previous is not None else None
+    surface = previous.surface() if restore_previous and previous is not None else None
     view.makeCurrent()
     try:
         yield
     finally:
         view.doneCurrent()
-        if previous is not None and surface is not None:
+        if restore_previous and previous is not None and surface is not None:
             previous.makeCurrent(surface)
 
 

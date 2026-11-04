@@ -49,7 +49,7 @@ class AcousticLayer:
         self.visible(False)
 
     def add(self,item):
-        with gl_context(self.view):
+        with gl_context(self.view, skip_if_current=False):
             self.view.addItem(item)
         self.items.append(item)
 

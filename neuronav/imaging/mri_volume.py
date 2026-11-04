@@ -1,7 +1,11 @@
 """Local MRI loading with explicit RAS+ millimetre display geometry."""
 from dataclasses import dataclass
 from pathlib import Path
+import nibabel as nib
+from nibabel.processing import resample_from_to
+from nibabel.spaces import vox2out_vox
 import numpy as np
+import SimpleITK as sitk
 
 MAX_VOXELS = 128_000_000
 
@@ -42,9 +46,6 @@ class MRIVolume:
 
 
 def prepare_volume(data, affine, name, note=''):
-    import nibabel as nib
-    from nibabel.processing import resample_from_to
-    from nibabel.spaces import vox2out_vox
     if data.ndim==4 and data.shape[3]==1:
         data=data[:,:,:,0]
     if data.ndim!=3 or min(data.shape)<2:
@@ -73,7 +74,6 @@ def prepare_volume(data, affine, name, note=''):
 
 
 def load_nifti(path):
-    import nibabel as nib
     image=nib.load(str(path))
     if len(image.shape)>4 or np.prod(image.shape)>MAX_VOXELS:
         raise ValueError('The MRI is too large or has unsupported dimensions.')
@@ -91,7 +91,6 @@ def load_nifti(path):
 
 
 def dicom_series(folder):
-    import SimpleITK as sitk
     identifiers=sitk.ImageSeriesReader.GetGDCMSeriesIDs(str(folder)) or []
     result=[]
     for uid in identifiers:
@@ -109,7 +108,6 @@ def dicom_series(folder):
 
 
 def load_dicom_series(files, name):
-    import SimpleITK as sitk
     # Check geometry before allocating the pixel volume. A missing slice,
     # mixed echo/time series, or localizer must not silently become a uniform
     # anatomical stack with incorrect distances.

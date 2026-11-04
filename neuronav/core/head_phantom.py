@@ -9,6 +9,7 @@ import numpy as np
 
 from neuronav.core.config import load_settings,save_settings
 from neuronav.core.frames import body_named,euler_xyz,euler_xyz_degrees,pose_matrix,rotation
+from neuronav.imaging.volume_geometry import preview_affine,preview_data
 
 
 @dataclass
@@ -82,7 +83,6 @@ class PhantomSettings:
 
 def mri_head_preview(volume):
     """Full MRI intensity preview with display bounds, not a segmented surface."""
-    from neuronav.imaging.volume_geometry import preview_data,preview_affine
     preview=preview_data(volume,128)
     affine=preview_affine(volume,preview.shape)
     low,high=volume.levels()
