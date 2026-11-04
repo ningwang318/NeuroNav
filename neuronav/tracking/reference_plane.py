@@ -2,10 +2,10 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from itertools import permutations
-import json
-from pathlib import Path
 
 import numpy as np
+
+from neuronav.core.config import read_json, write_json_atomic
 
 PERMUTATIONS = list(permutations(range(3)))
 
@@ -80,15 +80,11 @@ class ReferencePlane:
                     edge_lengths_mm=(distances(self.markers)*1000).tolist(),
                     convention='Origin: centroid. X: P1 to P2. Y: plane normal. Z: X cross Y.',
                     **self.metadata)
-        path = Path(path)
-        path.parent.mkdir(exist_ok=True)
-        temporary = path.with_suffix('.tmp')
-        temporary.write_text(json.dumps(data, indent=2, allow_nan=False), encoding='utf-8')
-        temporary.replace(path)
+        write_json_atomic(path, data)
 
     @classmethod
     def load(cls, path):
-        data = json.loads(Path(path).read_text(encoding='utf-8'))
+        data = read_json(path)
         if data.get('schema') != 1 or data.get('units') != 'metres':
             raise ValueError('Unsupported reference geometry file.')
         p = triangle(data['markers_tracker_m'])

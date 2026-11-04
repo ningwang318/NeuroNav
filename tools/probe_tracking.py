@@ -1,5 +1,4 @@
 """Read-only local NatNet diagnostics; never enables a robot or ultrasound."""
-import json
 import socket
 import struct
 from pathlib import Path

@@ -4,20 +4,19 @@ Local +Z is downstream into the field. MAT axis 0 runs far-to-near, hence its
 last slice is the nearest sample. Exact FIG meshes retain MATLAB 1-based
 indices until physical sampling metadata is supplied.
 """
-from dataclasses import dataclass,field,asdict
-import json
+from dataclasses import dataclass,field
 from pathlib import Path
 import numpy as np
-from scipy.spatial.transform import Rotation
 
-from neuronav.core.config import ROOT
+from neuronav.core.config import ROOT,load_settings,read_json,save_settings,write_json_atomic
+from neuronav.core.frames import euler_xyz
 
 
 class AcousticField:
     def __init__(self,path,root=None):
         self.path=Path(path)
         self.root=Path(root or ROOT)
-        self.profile=json.loads(self.path.read_text(encoding='utf-8'))
+        self.profile=read_json(self.path)
         self.validate_profile()
         asset=self.root/self.profile['asset']
         with np.load(asset,allow_pickle=False) as data:
@@ -87,9 +86,7 @@ class AcousticField:
 
     def save_profile(self):
         self.validate_profile()
-        temporary=self.path.with_suffix('.tmp')
-        temporary.write_text(json.dumps(self.profile,indent=2,allow_nan=False),encoding='utf-8')
-        temporary.replace(self.path)
+        write_json_atomic(self.path,self.profile)
 
 
 @dataclass
@@ -125,7 +122,7 @@ class AcousticPlacement:
     def manual_matrix(self):
         self.validate()
         matrix=np.eye(4)
-        matrix[:3,:3]=Rotation.from_euler('xyz',self.rotation_deg,degrees=True).as_matrix()
+        matrix[:3,:3]=euler_xyz(self.rotation_deg)
         matrix[:3,3]=self.position_mm
         matrix[:3,3]+=matrix[:3,2]*self.beam_shift_mm
         return matrix
@@ -135,20 +132,17 @@ class AcousticPlacement:
         self.focus_at(field,center)
 
     def focus_at(self,field,point):
-        rotation=Rotation.from_euler('xyz',self.rotation_deg,degrees=True).as_matrix()
+        rotation=euler_xyz(self.rotation_deg)
         self.position_mm=(np.asarray(point)-rotation @ field.peak).tolist()
         self.beam_shift_mm=0.
         self.manual_initialized=True
 
     @classmethod
     def load(cls,path):
-        value=cls(**json.loads(Path(path).read_text(encoding='utf-8'))) if Path(path).exists() else cls()
-        value.validate()
-        return value
+        return load_settings(cls,path)
 
     def save(self,path):
-        self.validate()
-        Path(path).write_text(json.dumps(asdict(self),indent=2,allow_nan=False),encoding='utf-8')
+        save_settings(self,path)
 
 
 def transducer_geometry(aperture_mm=64.,radius_mm=None):

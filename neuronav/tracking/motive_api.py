@@ -9,35 +9,13 @@ import sys
 import threading
 import time
 
-import numpy as np
-
 from neuronav.core.config import ROOT
-from neuronav.tracking.natnet import Body, Frame, Models
+from neuronav.core.frames import quaternion_from_matrix
+from neuronav.tracking.datatypes import Body, Frame, Models
 
 
 # Stdlib-only host script, launched by file path with the base interpreter.
 SERVICE_SCRIPT = Path(__file__).resolve().with_name('motive_service.py')
-
-
-def quaternion_from_matrix(values):
-    matrix = np.asarray(values, dtype=float).reshape(3, 3)
-    if not np.isfinite(matrix).all() or not np.allclose(matrix.T @ matrix, np.eye(3), atol=.01):
-        raise ValueError('Invalid camera orientation matrix')
-    if not np.isclose(np.linalg.det(matrix), 1, atol=.01):
-        raise ValueError('Camera orientation is not a proper rotation')
-    # Symmetric eigenproblem avoids singularities near rotations of 180 degrees.
-    m = matrix
-    k = np.array([
-        [m[0,0]-m[1,1]-m[2,2], m[0,1]+m[1,0], m[0,2]+m[2,0], m[2,1]-m[1,2]],
-        [m[0,1]+m[1,0], m[1,1]-m[0,0]-m[2,2], m[1,2]+m[2,1], m[0,2]-m[2,0]],
-        [m[0,2]+m[2,0], m[1,2]+m[2,1], m[2,2]-m[0,0]-m[1,1], m[1,0]-m[0,1]],
-        [m[2,1]-m[1,2], m[0,2]-m[2,0], m[1,0]-m[0,1], np.trace(m)],
-    ]) / 3
-    _, vectors = np.linalg.eigh(k)
-    q = vectors[:, -1]
-    if q[3] < 0:
-        q = -q
-    return tuple(q.tolist())
 
 
 class MotiveTracking:

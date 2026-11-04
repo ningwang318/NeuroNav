@@ -1,8 +1,8 @@
 """Editable lab illustration geometry expressed in the saved reference frame."""
 from dataclasses import dataclass,asdict
-import json
-from pathlib import Path
 import numpy as np
+
+from neuronav.core.config import load_settings,save_settings
 
 
 @dataclass
@@ -33,18 +33,8 @@ class TableLayout:
 
     @classmethod
     def load(cls,path):
-        if not Path(path).exists():
-            return cls()
-        data=json.loads(Path(path).read_text(encoding='utf-8'))
-        settings=cls(**data['geometry'])
-        settings.validate()
-        return settings
+        return load_settings(cls,path,key='geometry')
 
     def save(self,path):
-        self.validate()
-        path=Path(path)
-        data=dict(schema=1,units='millimetres/degrees',geometry=asdict(self),
-                  note='Photo-estimated lab illustration, not a measured robot or collision model.')
-        temporary=path.with_suffix('.tmp')
-        temporary.write_text(json.dumps(data,indent=2),encoding='utf-8')
-        temporary.replace(path)
+        save_settings(self,path,key='geometry',schema=1,units='millimetres/degrees',
+                      note='Photo-estimated lab illustration, not a measured robot or collision model.')

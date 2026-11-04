@@ -9,7 +9,8 @@ import unittest
 import numpy as np
 from PySide6 import QtWidgets as Qt
 
-from app import MainWindow, world
+from neuronav.ui.main_window import MainWindow
+from neuronav.core.frames import world
 from PySide6 import QtGui
 from neuronav.tracking.natnet import Frame, Models
 from neuronav.tracking.reference_plane import ReferencePlane

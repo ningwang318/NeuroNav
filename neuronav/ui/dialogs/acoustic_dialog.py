@@ -1,11 +1,9 @@
 """Transducer selection, measured-field calibration and future marker attachment."""
 from copy import copy,deepcopy
-from pathlib import Path
-import numpy as np
-from PySide6 import QtCore,QtGui,QtWidgets as Qt
+from PySide6 import QtGui,QtWidgets as Qt
 import pyqtgraph.opengl as gl
 from neuronav.acoustics.field import AcousticField
-from neuronav.core.config import CONFIG_DIR
+from neuronav.core.config import CONFIG_DIR,read_json
 from neuronav.ui.acoustic_scene import AcousticLayer
 
 
@@ -21,8 +19,7 @@ def open_acoustic_dialog(window):
     selector=Qt.QComboBox()
     paths=sorted(CONFIG_DIR.glob('transducer_*.json'))
     for path in paths:
-        import json
-        selector.addItem(json.loads(path.read_text(encoding='utf-8'))['name'],str(path))
+        selector.addItem(read_json(path)['name'],str(path))
     selector.setCurrentIndex(next((i for i,p in enumerate(paths) if p==selected.path),0))
     outer.addWidget(selector)
     preview_mode=Qt.QComboBox()

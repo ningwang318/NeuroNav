@@ -11,7 +11,8 @@ from neuronav.core.head_phantom import PhantomSettings,mri_head_preview
 from neuronav.imaging.mri_volume import demo_volume
 from neuronav.tracking.reference_plane import ReferencePlane
 from neuronav.tracking.natnet import Body,Frame,Models
-from app import Workspace,DISPLAY
+from neuronav.ui.workspace_view import Workspace
+from neuronav.core.frames import DISPLAY
 
 
 class HeadPhantomTests(unittest.TestCase):
@@ -102,7 +103,7 @@ class HeadPhantomTests(unittest.TestCase):
         volume=demo_volume()
         preview,transform,dimensions=mri_head_preview(volume)
         self.assertLessEqual(max(preview.shape),128)
-        from neuronav.ui.mri_3d import preview_affine
+        from neuronav.imaging.volume_geometry import preview_affine
         to_head=transform @ np.linalg.inv(preview_affine(volume,preview.shape))
         np.testing.assert_allclose(to_head[:3,:3] @ [0,0,10],[0,.01,0])
         np.testing.assert_allclose(to_head[:3,:3] @ [0,10,0],[0,0,.01])

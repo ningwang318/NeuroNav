@@ -4,7 +4,6 @@ Supports frame prefixes and model descriptions from NatNet 3.1, 4.0, 4.1,
 and 4.2. Sections outside this viewer's scope are skipped using their
 4.1+ byte lengths. No commands change tracking, robot, or ultrasound state.
 """
-from dataclasses import dataclass, field
 from collections import deque
 import math
 import select
@@ -12,6 +11,8 @@ import socket
 import struct
 import threading
 import time
+
+from neuronav.tracking.datatypes import Body, Frame, Models
 
 
 class ProtocolError(ValueError):
@@ -51,30 +52,6 @@ def payload(packet, expected):
     if kind != expected:
         raise ProtocolError(f'Expected message {expected}, received {kind}')
     return Reader(r.take(length))
-
-
-@dataclass(frozen=True)
-class Body:
-    id: int
-    position: tuple
-    quaternion: tuple
-    mean_error_m: float
-    valid: bool
-
-
-@dataclass(frozen=True)
-class Frame:
-    number: int
-    received: float
-    markers: tuple
-    bodies: tuple
-    unlabeled_count: int
-
-
-@dataclass
-class Models:
-    names: dict = field(default_factory=dict)
-    cameras: list = field(default_factory=list)
 
 
 def version_supported(version):

@@ -6,7 +6,8 @@ import numpy as np
 from PySide6 import QtCore,QtGui,QtWidgets as Qt
 
 from neuronav.imaging.mri_volume import MRIVolume,demo_volume
-from neuronav.ui.mri_3d import MRI3DView,preview_affine,preview_data,cut_face,clip_equation,rgba_data,PLANE_AXES,FACE_AXES,plane_outline,physical_bounds
+from neuronav.imaging.volume_geometry import preview_affine,preview_data,cut_face,clip_equation,rgba_data,PLANE_AXES,FACE_AXES,plane_outline,physical_bounds
+from neuronav.ui.mri_3d import MRI3DView
 from neuronav.ui.mri_workspace import MRIWorkspace
 
 

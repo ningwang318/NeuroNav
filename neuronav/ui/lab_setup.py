@@ -4,7 +4,8 @@ Robot posture, base placement, tripod and breadboard are approximate static
 illustrations. They must never be used for robot motion or collision checking.
 """
 import numpy as np
-from neuronav.ui.camera_bar import cylinder, case, rotation
+from neuronav.core.frames import rotation
+from neuronav.ui.camera_bar import cylinder, case
 from neuronav.core.table_layout import TableLayout
 
 WHITE = (.87,.89,.91,1)

@@ -10,7 +10,8 @@ from neuronav.acoustics.field import AcousticField,AcousticPlacement,transducer_
 from neuronav.ui.acoustic_scene import tracker_from_mri
 from neuronav.imaging.mri_volume import demo_volume
 from neuronav.tracking.natnet import Frame,Body,Models
-from app import MainWindow,DISPLAY
+from neuronav.ui.main_window import MainWindow
+from neuronav.core.frames import DISPLAY
 
 
 ROOT=Path(__file__).resolve().parents[1]

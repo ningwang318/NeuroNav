@@ -96,7 +96,7 @@ class ReferenceTests(unittest.TestCase):
 
     def test_scene_and_pose_table_use_same_transform(self):
         import time
-        from app import reference_data, rotation
+        from neuronav.core.frames import reference_data, rotation
         from neuronav.tracking.natnet import Body, Frame, Models
         ref = captured()
         body = Body(0, tuple(ref.origin), (0,0,0,1), .0002, True)

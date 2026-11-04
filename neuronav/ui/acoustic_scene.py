@@ -5,9 +5,9 @@ from PySide6 import QtGui
 import pyqtgraph.opengl as gl
 from OpenGL import GL
 from neuronav.acoustics.field import transducer_geometry
-from neuronav.ui.camera_bar import rotation
-from neuronav.ui.mri_3d import preview_affine
-from scipy.spatial.transform import Rotation
+from neuronav.core.frames import DISPLAY4, body_matrix, body_named, euler_xyz, pose_matrix
+from neuronav.imaging.volume_geometry import preview_affine
+from neuronav.ui.gl_utils import gl_context
 
 
 class FieldMesh(gl.GLMeshItem):
@@ -49,18 +49,8 @@ class AcousticLayer:
         self.visible(False)
 
     def add(self,item):
-        valid=self.view.isValid()
-        previous=QtGui.QOpenGLContext.currentContext()
-        surface=previous.surface() if previous is not None else None
-        if valid:
-            self.view.makeCurrent()
-        try:
+        with gl_context(self.view):
             self.view.addItem(item)
-        finally:
-            if valid:
-                self.view.doneCurrent()
-                if previous is not None and surface is not None:
-                    previous.makeCurrent(surface)
         self.items.append(item)
 
     def visible(self,value,thresholds=(-3,-6,-12)):
@@ -81,16 +71,11 @@ class AcousticLayer:
 
 
 def tracker_from_mri(view):
-    if view.phantom_pose is None or view.phantom_mri is None:
+    """MRI RAS+ mm -> tracker m, through the same chain that places the head model."""
+    preview_to_tracker=view.preview_to_tracker()
+    if preview_to_tracker is None:
         return None
-    position,orientation=view.phantom_pose
-    matrix=np.eye(4)
-    matrix[:3,:3]=orientation
-    matrix[:3,3]=position
-    height,width,depth=view.phantom_mri_dimensions
-    scale=np.diag([view.phantom.width_mm/width,view.phantom.height_mm/height,view.phantom.depth_mm/depth,1])
-    ras_to_head=view.phantom_mri_transform @ np.linalg.inv(preview_affine(view.phantom_mri,view.phantom_mri_preview.shape))
-    return matrix @ scale @ ras_to_head  # MRI mm -> tracker m
+    return preview_to_tracker @ np.linalg.inv(preview_affine(view.phantom_mri,view.phantom_mri_preview.shape))
 
 
 class AcousticController:
@@ -131,23 +116,18 @@ class AcousticController:
             return
         live=bool(self.fresh and self.last_frame and time.monotonic()-self.last_frame.received<.5)
         mapping=tracker_from_mri(w.view) if live else None
-        display=np.eye(4);display[:3,:3]=np.array([[1,0,0],[0,0,-1],[0,1,0]])
+        display=DISPLAY4
         tracker_pose=None
         if p.mode in ['preview','tracked']:
             if p.mode=='tracked' and not p.marker_calibrated:
                 status.setText('US: marker-to-transducer attachment is not calibrated')
                 return
-            matches=[b for b in self.last_frame.bodies if b.valid and
-                     self.last_models.names.get(b.id,'').casefold()==p.marker_body.casefold()] if live and self.last_models else []
-            if len(matches)!=1:
+            body=body_named(self.last_frame,self.last_models,p.marker_body) if live else None
+            if body is None:
                 status.setText('US: waiting for a fresh '+p.marker_body+' marker pose')
                 return
-            body=matches[0]
-            marker=np.eye(4);marker[:3,:3]=rotation(body.quaternion);marker[:3,3]=body.position
-            attachment=np.eye(4)
-            attachment[:3,:3]=Rotation.from_euler('xyz',p.marker_rotation_deg,degrees=True).as_matrix()
-            attachment[:3,3]=np.asarray(p.marker_translation_mm)/1000
-            tracker_pose=marker @ attachment @ np.diag([.001,.001,.001,1])
+            attachment=pose_matrix(euler_xyz(p.marker_rotation_deg),np.asarray(p.marker_translation_mm)/1000)
+            tracker_pose=body_matrix(body) @ attachment @ np.diag([.001,.001,.001,1])
             self.tracker_pose=tracker_pose
             self.tracking_layer.pose(display @ tracker_pose)
             self.tracking_layer.visible(True,p.visible_thresholds)

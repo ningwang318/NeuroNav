@@ -4,12 +4,11 @@ Head coordinates: origin at bottom center, +Y up, +Z toward the nose.
 Offsets map head coordinates into the rigid body's local frame, in metres.
 This supplies an assumed MRI placement, not a measured registration.
 """
-from dataclasses import dataclass,asdict,field
-import json
-from pathlib import Path
+from dataclasses import dataclass,field
 import numpy as np
-from scipy.spatial.transform import Rotation
-from neuronav.ui.camera_bar import rotation
+
+from neuronav.core.config import load_settings,save_settings
+from neuronav.core.frames import body_named,euler_xyz,euler_xyz_degrees,pose_matrix,rotation
 
 
 @dataclass
@@ -39,26 +38,13 @@ class PhantomSettings:
 
     @classmethod
     def load(cls,path):
-        if not Path(path).exists():
-            return cls()
-        value=cls(**json.loads(Path(path).read_text(encoding='utf-8')))
-        value.validate()
-        return value
+        return load_settings(cls,path)
 
     def save(self,path):
-        self.validate()
-        path=Path(path)
-        path.parent.mkdir(parents=True,exist_ok=True)
-        temporary=path.with_suffix('.tmp')
-        temporary.write_text(json.dumps(asdict(self),indent=2),encoding='utf-8')
-        temporary.replace(path)
+        save_settings(self,path)
 
     def body(self,frame,models):
-        if frame is None:
-            return None
-        matches=[body for body in frame.bodies if body.valid and
-                 models.names.get(body.id,'').casefold()==self.body_name.casefold()]
-        return matches[0] if len(matches)==1 else None
+        return body_named(frame,models,self.body_name)
 
     def align_upright(self,body,reference,cameras):
         """Capture a fixed body-local offset from the current upright placement."""
@@ -74,13 +60,13 @@ class PhantomSettings:
         body_rotation=rotation(body.quaternion)
         offset=-up*(self.height_mm+self.marker_above_top_mm)
         self.translation_mm=(body_rotation.T @ offset).tolist()
-        self.rotation_deg=Rotation.from_matrix(body_rotation.T @ head_rotation).as_euler('xyz',degrees=True).tolist()
+        self.rotation_deg=euler_xyz_degrees(body_rotation.T @ head_rotation).tolist()
         self.configured=True
         self.validate()
 
     def pose(self,body):
         body_rotation=rotation(body.quaternion)
-        local_rotation=Rotation.from_euler('xyz',self.rotation_deg,degrees=True).as_matrix()
+        local_rotation=euler_xyz(self.rotation_deg)
         return (np.asarray(body.position)+body_rotation @ (np.asarray(self.translation_mm)/1000),
                 body_rotation @ local_rotation)
 
@@ -88,7 +74,7 @@ class PhantomSettings:
         """Keep marker-to-top placement when replacing the estimated head height."""
         height,width,depth=map(float,dimensions)
         if self.configured:
-            up=Rotation.from_euler('xyz',self.rotation_deg,degrees=True).as_matrix()[:,1]
+            up=euler_xyz(self.rotation_deg)[:,1]
             self.translation_mm=(np.asarray(self.translation_mm)+up*(self.height_mm-height)).tolist()
         self.height_mm,self.width_mm,self.depth_mm=height,width,depth
         self.validate()
@@ -96,7 +82,7 @@ class PhantomSettings:
 
 def mri_head_preview(volume):
     """Full MRI intensity preview with display bounds, not a segmented surface."""
-    from neuronav.ui.mri_3d import preview_data,preview_affine
+    from neuronav.imaging.volume_geometry import preview_data,preview_affine
     preview=preview_data(volume,128)
     affine=preview_affine(volume,preview.shape)
     low,high=volume.levels()
@@ -122,3 +108,15 @@ def mri_head_preview(volume):
     dimensions=np.array([extent[2],extent[0],extent[1]])
     return preview,local @ affine,dimensions
 
+
+def preview_to_tracker(pose,settings,mri_dimensions,preview_to_head):
+    """MRI preview voxel -> tracker metres for the tracked head model.
+
+    pose: (position, orientation) of the head bottom centre, from PhantomSettings.pose.
+    mri_dimensions/preview_to_head: from mri_head_preview. The head model is scaled
+    from the MRI's physical size to the configured phantom size.
+    """
+    position,orientation=pose
+    height,width,depth=mri_dimensions
+    scale=np.diag([settings.width_mm/width,settings.height_mm/height,settings.depth_mm/depth,1])
+    return pose_matrix(orientation,position) @ scale @ preview_to_head
