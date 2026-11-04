@@ -1,0 +1,20 @@
+{
+  "enabled": true,
+  "body_name": "Head",
+  "height_mm": 177.47663551401868,
+  "width_mm": 180.0,
+  "depth_mm": 216.0,
+  "marker_above_top_mm": 50.0,
+  "translation_mm": [
+    1.0299848510982212,
+    159.80763659373042,
+    -161.88760545469157
+  ],
+  "rotation_deg": [
+    47.89,
+    16.39,
+    -163.03
+  ],
+  "configured": true,
+  "use_mri_size": true
+}

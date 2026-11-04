@@ -1,0 +1,8 @@
+numpy>=1.24,<3
+PySide6-Essentials==6.8.3
+shiboken6==6.8.3
+pyqtgraph==0.13.7
+PyOpenGL==3.1.10
+nibabel>=5.4,<6
+scipy>=1.17,<2
+SimpleITK==2.5.6

@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "units": "millimetres/degrees",
+  "geometry": {
+    "width_mm": 450.0,
+    "depth_mm": 600.0,
+    "thickness_mm": 72.0,
+    "center_x_mm": 33.3539,
+    "center_z_mm": 224.8863,
+    "top_y_mm": -18.0,
+    "yaw_deg": -143.1422,
+    "robot_x_mm": 55.0,
+    "robot_z_mm": -215.0
+  },
+  "note": "Photo-estimated lab illustration, not a measured robot or collision model."
+}

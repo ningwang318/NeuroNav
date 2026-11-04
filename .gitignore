@@ -1,0 +1,9 @@
+.venv/
+env/
+__pycache__/
+*.log
+diagnostics/
+runtime.json
+settings.ini
+config/*.motive
+config/*.mcal
