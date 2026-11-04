@@ -5,7 +5,7 @@ import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets as Qt
 
 from neuronav.acoustics.field import AcousticField, AcousticPlacement
-from neuronav.core.config import ROOT, CONFIG_DIR
+from neuronav.core.config import ROOT, CONFIG_DIR, config_relative, motive_install, resolve_config_path
 from neuronav.core.diagnostics import save_diagnostics
 from neuronav.core.frames import reference_data
 from neuronav.core.head_phantom import PhantomSettings
@@ -104,10 +104,14 @@ class MainWindow(Qt.QMainWindow):
         self.lab_setup_action.toggled.connect(self.toggle_lab_setup)
 
     def tracking_defaults(self):
+        """settings.ini (last used) values, else local.toml / project defaults.
+
+        Calibration and profile paths are stored relative to config/ when inside it.
+        """
         value = self.settings.value
-        return dict(api_install=value('api_install', r'C:\Program Files\OptiTrack\Motive'),
-                    api_calibration=value('api_calibration', str(CONFIG_DIR/'System Calibration.mcal')),
-                    api_profile=value('api_profile', str(CONFIG_DIR/'MotiveProfile.motive')),
+        return dict(api_install=value('api_install', motive_install()),
+                    api_calibration=str(resolve_config_path(value('api_calibration', 'System Calibration.mcal'))),
+                    api_profile=str(resolve_config_path(value('api_profile', 'MotiveProfile.motive'))),
                     server=value('server', '127.0.0.1'), interface=value('interface', '127.0.0.1'),
                     group=value('group', '239.255.42.99'), port=value('port', 1511))
 
@@ -289,6 +293,8 @@ class MainWindow(Qt.QMainWindow):
             self.rate = 0
             self.connect_button.setText('Stop tracking')
             for name, value in self.source_panel.values().items():
+                if name in ('api_calibration', 'api_profile'):
+                    value = config_relative(value)
                 self.settings.setValue(name, value)
             self.settings.sync()
         self.source_panel.set_connected(self.receiver is not None)

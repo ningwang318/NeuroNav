@@ -6,3 +6,8 @@ PyOpenGL==3.1.10
 nibabel>=5.4,<6
 scipy>=1.17,<2
 SimpleITK==2.5.6
+scikit-image>=0.24,<1
+# h5py is deliberately NOT installed: pyqtgraph imports it whenever available,
+# and with HDF5 loaded the background MRI loader thread (QThread) can deadlock
+# the whole process on Windows. Revisit when the field library needs HDF5
+# (e.g. read .h5/.mat v7.3 in a separate process or convert to .npz offline).

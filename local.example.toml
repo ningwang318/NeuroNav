@@ -1,0 +1,15 @@
+# Machine-specific paths for NeuroNav.
+# Copy this file to local.toml (gitignored) and edit. Every key is optional.
+# Use single quotes so Windows backslashes are taken literally.
+
+[motive]
+# Motive installation folder (contains lib\MotiveAPI.dll). Used as the default
+# "Motive runtime" until a value is saved in settings.ini.
+install = 'C:\Program Files\OptiTrack\Motive'
+
+[paths]
+# Reserved for upcoming features; not read by the current version.
+# Folder of precomputed skull-position acoustic fields (field library).
+field_library = 'D:\LIFU\field_library'
+# Default folder for MRI volumes (NIfTI / DICOM).
+mri_dir = 'D:\data\mri'

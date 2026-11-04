@@ -20,13 +20,38 @@ browse buttons to select another exported `.mcal` or `.motive` file. Re-export
 them from Motive when calibration, marker geometry or assets change. The
 provided calibration's suitability and physical accuracy have not been measured.
 
-On this computer the GUI runtime is installed at
-`%TEMP%\neuro-nav-01a18756-env`. The source remains in this project folder.
-If Windows clears that temporary runtime, recreate it using the setup below.
+The GUI runtime is the `.venv` folder in this project, created by `setup.ps1`
+(see **Set up the runtime** below). Calibration and profile paths saved in
+`settings.ini` are relative to `config/` when the files are inside it, so the
+project folder can be moved.
+
+## Code layout
+
+```
+app.py                  thin launcher (same as python -m neuronav)
+neuronav/
+  __main__.py           command-line options, QApplication start-up
+  core/                 no Qt: frames.py (DISPLAY, quaternions, Euler, reference_data,
+                        body_named), config.py (paths, local.toml, JSON load/atomic save),
+                        head_phantom.py, table_layout.py, diagnostics.py
+  tracking/             datatypes.py (Body/Frame/Models), natnet.py, motive_api.py
+                        (viewer adapter), motive_service.py (stdlib-only child process),
+                        reference_plane.py
+  imaging/              mri_volume.py (NIfTI/DICOM loading), volume_geometry.py
+  acoustics/            field.py (measured focal field, placement, transducer geometry)
+  validation/           reserved: phantom thermal-sensor validation
+  ui/                   main_window.py, workspace_view.py (tracking scene), mri_workspace.py,
+                        mri_3d.py, acoustic_scene.py, camera_bar.py, lab_setup.py,
+                        gl_utils.py, style.py, panels/, dialogs/
+tests/                  python -m unittest
+tools/                  probe_tracking.py, inspect_acoustic_fig.m
+config/                 shared settings (versioned); local.toml holds machine paths
+```
 
 ## Standalone architecture
 
-`app.py` starts `motive_service.py` as an isolated child process. The child loads
+`neuronav/tracking/motive_api.py` starts `neuronav/tracking/motive_service.py`
+as an isolated child process. The child loads
 the installed Windows x64 Motive API, initializes the licensed engine, loads
 calibration and profile, waits for camera discovery, then calls `Update()` and
 reads reconstructed markers and rigid-body transforms. The service disables
@@ -280,18 +305,20 @@ plane selection, transparent backgrounds, independent opacity controls,
 cut-plane placement, picking and linked wheel navigation. Clinical/patient images have not yet
 been tested in this session.
 
-## Recreate the short-path runtime
+## Set up the runtime
 
-The project folder's long name exceeds Windows' path limit for some Qt package
-files. Use a short virtual environment path. On this computer, in PowerShell:
+In PowerShell, in this folder (needs 64-bit Python 3.11–3.13; the script finds
+one in `py`, anaconda3 or miniconda3, or takes `-Python C:\path\to\python.exe`):
 
 ```powershell
-$navBase = 'C:\Users\Labuser\miniconda3\envs\focusshift\python.exe'
-$navEnv = "$env:TEMP\neuro-nav-01a18756-env"
-& $navBase -m venv --system-site-packages --without-pip $navEnv
-& $navBase -m pip --python $navEnv install -r requirements.txt
-& "$navEnv\Scripts\python.exe" app.py
+powershell -ExecutionPolicy Bypass -File .\setup.ps1
 ```
+
+This creates `.venv`, installs `requirements.txt`, and copies
+`local.example.toml` to `local.toml` (gitignored) for machine-specific paths:
+the Motive installation and, for upcoming features, the field-library and MRI
+folders. `-Recreate` rebuilds `.venv`. Keep the base interpreter installed: the
+Motive API service runs with it.
 
 The GUI uses PySide6 Essentials, pyqtgraph and OpenGL. The API service uses
 Python's standard library and installed vendor DLLs; the viewer-side adapter
@@ -304,8 +331,9 @@ outside the viewer's scope.
 ## Verification
 
 ```powershell
-& "$env:TEMP\neuro-nav-01a18756-env\Scripts\python.exe" -m unittest -v test_tracking test_api_tracking
-& "$env:TEMP\neuro-nav-01a18756-env\Scripts\python.exe" app.py --smoke-seconds 5
+$env:QT_QPA_PLATFORM = 'offscreen'
+.\.venv\Scripts\python.exe -m unittest -v
+.\.venv\Scripts\python.exe app.py --offline --mri-demo --smoke-seconds 5
 ```
 
 On 29 October 2026 the standalone service processed 600 frames in five seconds
@@ -317,7 +345,7 @@ through the API service. Head and Transducer remained untracked during these
 tests, so valid live rigid-body pose accuracy has not been validated.
 Fourteen unit tests passed. These tests do not establish physical tracking accuracy.
 
-`probe_tracking.py` performs read-only NatNet diagnostics against local Motive and
+`tools/probe_tracking.py` performs read-only NatNet diagnostics against local Motive and
 saves raw server, model and frame packets under `diagnostics/`. These captures
 are ignored by Git. It neither modifies Motive nor sends actuator commands.
 

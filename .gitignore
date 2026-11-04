@@ -7,3 +7,5 @@ runtime.json
 settings.ini
 config/*.motive
 config/*.mcal
+local.toml
+*.tmp
