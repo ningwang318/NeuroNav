@@ -11,8 +11,8 @@ from PySide6 import QtWidgets as Qt
 
 from app import MainWindow, world
 from PySide6 import QtGui
-from tracking import Frame, Models
-from reference_plane import ReferencePlane
+from neuronav.tracking.natnet import Frame, Models
+from neuronav.tracking.reference_plane import ReferencePlane
 
 
 class ReferenceGUITest(unittest.TestCase):

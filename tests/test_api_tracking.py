@@ -3,7 +3,7 @@ import unittest
 
 import numpy as np
 
-from api_tracking import MotiveTracking, quaternion_from_matrix
+from neuronav.tracking.motive_api import MotiveTracking, quaternion_from_matrix
 
 
 class APITests(unittest.TestCase):

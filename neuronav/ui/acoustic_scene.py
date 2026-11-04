@@ -4,9 +4,9 @@ import time
 from PySide6 import QtGui
 import pyqtgraph.opengl as gl
 from OpenGL import GL
-from acoustic_field import transducer_geometry
-from camera_bar import rotation
-from mri_3d import preview_affine
+from neuronav.acoustics.field import transducer_geometry
+from neuronav.ui.camera_bar import rotation
+from neuronav.ui.mri_3d import preview_affine
 from scipy.spatial.transform import Rotation
 
 

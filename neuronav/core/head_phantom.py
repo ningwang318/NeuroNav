@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 import numpy as np
 from scipy.spatial.transform import Rotation
-from camera_bar import rotation
+from neuronav.ui.camera_bar import rotation
 
 
 @dataclass
@@ -96,7 +96,7 @@ class PhantomSettings:
 
 def mri_head_preview(volume):
     """Full MRI intensity preview with display bounds, not a segmented surface."""
-    from mri_3d import preview_data,preview_affine
+    from neuronav.ui.mri_3d import preview_data,preview_affine
     preview=preview_data(volume,128)
     affine=preview_affine(volume,preview.shape)
     low,high=volume.levels()

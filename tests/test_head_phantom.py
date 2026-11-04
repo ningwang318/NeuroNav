@@ -7,10 +7,10 @@ from pathlib import Path
 import numpy as np
 from scipy.spatial.transform import Rotation
 from PySide6 import QtGui,QtWidgets as Qt
-from head_phantom import PhantomSettings,mri_head_preview
-from mri_volume import demo_volume
-from reference_plane import ReferencePlane
-from tracking import Body,Frame,Models
+from neuronav.core.head_phantom import PhantomSettings,mri_head_preview
+from neuronav.imaging.mri_volume import demo_volume
+from neuronav.tracking.reference_plane import ReferencePlane
+from neuronav.tracking.natnet import Body,Frame,Models
 from app import Workspace,DISPLAY
 
 
@@ -102,7 +102,7 @@ class HeadPhantomTests(unittest.TestCase):
         volume=demo_volume()
         preview,transform,dimensions=mri_head_preview(volume)
         self.assertLessEqual(max(preview.shape),128)
-        from mri_3d import preview_affine
+        from neuronav.ui.mri_3d import preview_affine
         to_head=transform @ np.linalg.inv(preview_affine(volume,preview.shape))
         np.testing.assert_allclose(to_head[:3,:3] @ [0,0,10],[0,.01,0])
         np.testing.assert_allclose(to_head[:3,:3] @ [0,10,0],[0,0,.01])

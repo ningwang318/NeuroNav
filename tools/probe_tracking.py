@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 def probe():
-    out = Path(__file__).parent / 'diagnostics'
+    out = Path(__file__).resolve().parents[1] / 'diagnostics'
     out.mkdir(exist_ok=True)
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as command:
         command.bind(('127.0.0.1', 0))

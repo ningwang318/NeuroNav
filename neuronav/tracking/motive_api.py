@@ -11,10 +11,12 @@ import time
 
 import numpy as np
 
-from tracking import Body, Frame, Models
+from neuronav.core.config import ROOT
+from neuronav.tracking.natnet import Body, Frame, Models
 
 
-ROOT = Path(__file__).resolve().parent
+# Stdlib-only host script, launched by file path with the base interpreter.
+SERVICE_SCRIPT = Path(__file__).resolve().with_name('motive_service.py')
 
 
 def quaternion_from_matrix(values):
@@ -122,7 +124,7 @@ class MotiveTracking:
             executable = Path(getattr(sys, '_base_executable', sys.executable))
             if executable.name.lower() == 'pythonw.exe':
                 executable = executable.with_name('python.exe')
-            command = [str(executable), '-u', str(ROOT/'motive_service.py'),
+            command = [str(executable), '-u', str(SERVICE_SCRIPT),
                        '--install', self.install, '--calibration', self.calibration,
                        '--profile', self.profile]
             environment = os.environ.copy()

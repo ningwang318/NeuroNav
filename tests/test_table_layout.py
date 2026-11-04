@@ -3,9 +3,9 @@ from pathlib import Path
 import unittest
 import numpy as np
 from scipy.spatial.transform import Rotation
-from table_layout import TableLayout
-from reference_plane import ReferencePlane
-from lab_setup import lab_setup_meshes
+from neuronav.core.table_layout import TableLayout
+from neuronav.tracking.reference_plane import ReferencePlane
+from neuronav.ui.lab_setup import lab_setup_meshes
 
 
 class TableLayoutTests(unittest.TestCase):

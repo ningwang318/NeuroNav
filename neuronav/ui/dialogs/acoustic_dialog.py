@@ -4,8 +4,9 @@ from pathlib import Path
 import numpy as np
 from PySide6 import QtCore,QtGui,QtWidgets as Qt
 import pyqtgraph.opengl as gl
-from acoustic_field import AcousticField
-from acoustic_scene import AcousticLayer
+from neuronav.acoustics.field import AcousticField
+from neuronav.core.config import CONFIG_DIR
+from neuronav.ui.acoustic_scene import AcousticLayer
 
 
 def open_acoustic_dialog(window):
@@ -18,7 +19,7 @@ def open_acoustic_dialog(window):
     dialog.resize(960,720)
     outer=Qt.QVBoxLayout(dialog)
     selector=Qt.QComboBox()
-    paths=sorted((Path(__file__).parent/'config').glob('transducer_*.json'))
+    paths=sorted(CONFIG_DIR.glob('transducer_*.json'))
     for path in paths:
         import json
         selector.addItem(json.loads(path.read_text(encoding='utf-8'))['name'],str(path))

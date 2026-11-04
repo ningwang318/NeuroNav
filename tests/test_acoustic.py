@@ -6,14 +6,14 @@ import time
 import unittest
 import numpy as np
 from PySide6 import QtGui,QtWidgets as Qt
-from acoustic_field import AcousticField,AcousticPlacement,transducer_geometry
-from acoustic_scene import tracker_from_mri
-from mri_volume import demo_volume
-from tracking import Frame,Body,Models
+from neuronav.acoustics.field import AcousticField,AcousticPlacement,transducer_geometry
+from neuronav.ui.acoustic_scene import tracker_from_mri
+from neuronav.imaging.mri_volume import demo_volume
+from neuronav.tracking.natnet import Frame,Body,Models
 from app import MainWindow,DISPLAY
 
 
-ROOT=Path(__file__).parent
+ROOT=Path(__file__).resolve().parents[1]
 
 
 class AcousticTests(unittest.TestCase):

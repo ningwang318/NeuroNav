@@ -10,17 +10,17 @@ from PySide6 import QtCore, QtGui, QtWidgets as Qt
 import pyqtgraph.opengl as gl
 from pyqtgraph.opengl import shaders
 
-from tracking import NatNet, Frame, Body, Models
-from api_tracking import MotiveTracking, quaternion_from_matrix
-from reference_plane import Capture, ReferencePlane, visible_markers
-from camera_bar import camera_bar_meshes
-from lab_setup import lab_setup_meshes
-from mri_workspace import MRIWorkspace
-from head_phantom import PhantomSettings,mri_head_preview
-from mri_3d import ClippedVolume,rgba_data
-from table_layout import TableLayout
-from acoustic_field import AcousticField,AcousticPlacement
-from acoustic_scene import AcousticController
+from neuronav.tracking.natnet import NatNet, Frame, Body, Models
+from neuronav.tracking.motive_api import MotiveTracking, quaternion_from_matrix
+from neuronav.tracking.reference_plane import Capture, ReferencePlane, visible_markers
+from neuronav.ui.camera_bar import camera_bar_meshes
+from neuronav.ui.lab_setup import lab_setup_meshes
+from neuronav.ui.mri_workspace import MRIWorkspace
+from neuronav.core.head_phantom import PhantomSettings,mri_head_preview
+from neuronav.ui.mri_3d import ClippedVolume,rgba_data
+from neuronav.core.table_layout import TableLayout
+from neuronav.acoustics.field import AcousticField,AcousticPlacement
+from neuronav.ui.acoustic_scene import AcousticController
 
 
 ROOT = Path(__file__).resolve().parent
@@ -573,7 +573,7 @@ class MainWindow(Qt.QMainWindow):
             field.setToolTip(path)
 
     def open_phantom_dialog(self):
-        from phantom_dialog import open_phantom_dialog
+        from neuronav.ui.dialogs.phantom_dialog import open_phantom_dialog
         open_phantom_dialog(self)
 
     def open_table_layout_dialog(self):
@@ -625,7 +625,7 @@ class MainWindow(Qt.QMainWindow):
         self.acoustic.update()
 
     def open_acoustic_dialog(self):
-        from acoustic_dialog import open_acoustic_dialog
+        from neuronav.ui.dialogs.acoustic_dialog import open_acoustic_dialog
         open_acoustic_dialog(self)
 
     def move_acoustic_beam(self,value):
@@ -1029,7 +1029,7 @@ def main():
     if args.mri_file:
         window.mri_workspace.load_path(args.mri_file)
     elif args.mri_demo:
-        from mri_volume import demo_volume
+        from neuronav.imaging.mri_volume import demo_volume
         window.mri_workspace.set_volume(demo_volume())
     window.show()
     if args.smoke_seconds:

@@ -3,8 +3,8 @@ import numpy as np
 from PySide6 import QtCore, QtWidgets as Qt
 import pyqtgraph as pg
 
-from mri_volume import load_nifti,dicom_series,load_dicom_series,demo_volume
-from mri_3d import MRI3DView,PLANE_AXES
+from neuronav.imaging.mri_volume import load_nifti,dicom_series,load_dicom_series,demo_volume
+from neuronav.ui.mri_3d import MRI3DView,PLANE_AXES
 
 
 PLANES={'axial':(2,0,1,('R','L','A','P')),

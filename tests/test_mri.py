@@ -11,8 +11,8 @@ import numpy as np
 import SimpleITK as sitk
 from PySide6 import QtWidgets as Qt
 
-from mri_volume import prepare_volume,load_nifti,dicom_series,load_dicom_series,demo_volume
-from mri_workspace import MRIWorkspace
+from neuronav.imaging.mri_volume import prepare_volume,load_nifti,dicom_series,load_dicom_series,demo_volume
+from neuronav.ui.mri_workspace import MRIWorkspace
 
 
 class MRITests(unittest.TestCase):

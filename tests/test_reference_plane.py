@@ -5,7 +5,7 @@ import unittest
 
 import numpy as np
 
-from reference_plane import Capture, ReferencePlane, triangle, distances, visible_markers
+from neuronav.tracking.reference_plane import Capture, ReferencePlane, triangle, distances, visible_markers
 
 
 POINTS = np.array([[0., 0., 0.], [.2, 0., 0.], [.07, 0., .12]]) + [.1, .2, .3]
@@ -97,7 +97,7 @@ class ReferenceTests(unittest.TestCase):
     def test_scene_and_pose_table_use_same_transform(self):
         import time
         from app import reference_data, rotation
-        from tracking import Body, Frame, Models
+        from neuronav.tracking.natnet import Body, Frame, Models
         ref = captured()
         body = Body(0, tuple(ref.origin), (0,0,0,1), .0002, True)
         raw = Frame(1, time.monotonic(), tuple(map(tuple, POINTS)), (body,), 0)

@@ -3,7 +3,7 @@ import math
 import struct
 import unittest
 
-from tracking import ProtocolError, decode_frame, decode_models
+from neuronav.tracking.natnet import ProtocolError, decode_frame, decode_models
 
 
 def pack(fmt, *values):

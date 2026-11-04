@@ -4,9 +4,9 @@ import unittest
 import numpy as np
 from PySide6 import QtCore,QtGui,QtWidgets as Qt
 
-from mri_volume import MRIVolume,demo_volume
-from mri_3d import oblique_face,oblique_clip_equation,preview_affine,plane_limits,point_on_plane_in_volume,physical_bounds
-from mri_workspace import MRIWorkspace
+from neuronav.imaging.mri_volume import MRIVolume,demo_volume
+from neuronav.ui.mri_3d import oblique_face,oblique_clip_equation,preview_affine,plane_limits,point_on_plane_in_volume,physical_bounds
+from neuronav.ui.mri_workspace import MRIWorkspace
 
 
 class ObliqueTests(unittest.TestCase):

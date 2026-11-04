@@ -10,11 +10,13 @@ from pathlib import Path
 import numpy as np
 from scipy.spatial.transform import Rotation
 
+from neuronav.core.config import ROOT
+
 
 class AcousticField:
     def __init__(self,path,root=None):
         self.path=Path(path)
-        self.root=Path(root or Path(__file__).parent)
+        self.root=Path(root or ROOT)
         self.profile=json.loads(self.path.read_text(encoding='utf-8'))
         self.validate_profile()
         asset=self.root/self.profile['asset']
