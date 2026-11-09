@@ -1,8 +1,8 @@
 {
   "name": "Sonic Concepts single-element 64 mm / measured 500 kHz",
-  "frequency_khz": 500,
-  "aperture_mm": 64,
-  "radius_mm": 64.0,
+  "frequency_khz": 500.0,
+  "aperture_mm": 64.0,
+  "radius_mm": 63.2,
   "axial_spacing_mm": 0.5,
   "lateral1_spacing_mm": 0.5,
   "lateral2_spacing_mm": 0.5,
@@ -15,7 +15,7 @@
   "source_fig": "D:\\LIFU\\2026_LIFU\\3D_acoustic_field\\acoustic_field_500 kHz_focal.fig",
   "source_sha256": "0a2edcf098da740e0f09e89147ddf896bad293cbda68b927363aedb887101fc8",
   "threshold_source": "Exact supplied FIG geometry, nested meshes labelled -3/-6/-12 dB in inner-to-outer order; not recomputed from unlabelled amplitudes",
-  "nominal_focal_distance_mm": 64.0,
-  "calibration_source": "User confirmed 0.5 mm on all axes; final slice at transducer surface; RoC and nominal focal distance 64 mm, 30 October 2026",
+  "nominal_focal_distance_mm": 63.2,
+  "calibration_source": "User confirmed 0.5 mm on all axes; final slice at transducer surface, 30 October 2026. Geometrical focus/RoC corrected by user to 63.2 mm with 64 mm aperture, 5 November 2026. Measured field samples are unchanged.",
   "reverse_axial_matrix": true
 }

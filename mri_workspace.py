@@ -3,7 +3,7 @@ import numpy as np
 from PySide6 import QtCore, QtWidgets as Qt
 import pyqtgraph as pg
 
-from mri_volume import load_nifti,dicom_series,load_dicom_series,demo_volume
+from mri_volume import load_mri,dicom_series,load_dicom_series
 from mri_3d import MRI3DView,PLANE_AXES
 
 
@@ -64,8 +64,11 @@ class SlicePane(Qt.QFrame):
         self.box.addItem(self.image)
         self.vertical=pg.InfiniteLine(angle=90,pen=pg.mkPen('#65d7d9',width=1))
         self.horizontal=pg.InfiniteLine(angle=0,pen=pg.mkPen('#65d7d9',width=1))
+        self.vertical.setZValue(2)
+        self.horizontal.setZValue(2)
         self.box.addItem(self.vertical)
         self.box.addItem(self.horizontal)
+        self.field_contours = {}
         self.canvas.scene().sigMouseClicked.connect(self.click)
         self.stack.addWidget(self.canvas)
         layout.addWidget(self.stack,1)
@@ -87,6 +90,24 @@ class SlicePane(Qt.QFrame):
         self.counter.setText('—')
         self.orientation.setText('')
         self.image.clear()
+        self.show_field_sections({})
+
+    def show_field_sections(self, sections):
+        _, horizontal, vertical, _ = PLANES[self.plane]
+        for threshold, curve in self.field_contours.items():
+            curve.setVisible(threshold in sections)
+        for threshold, (points, color) in sections.items():
+            if threshold not in self.field_contours:
+                curve = pg.PlotCurveItem(pen=pg.mkPen(color, width=1.5), connect='pairs')
+                self.box.addItem(curve, ignoreBounds=True)
+                curve.setZValue(1)
+                self.field_contours[threshold] = curve
+            curve = self.field_contours[threshold]
+            shape, spacing = self.volume.data.shape, self.volume.spacing
+            x = (shape[horizontal] - .5 - points[:, horizontal]) * spacing[horizontal]
+            y = (shape[vertical] - .5 - points[:, vertical]) * spacing[vertical]
+            curve.setData(x, y)
+            curve.show()
 
     def show_slice(self,volume,indices,levels,reset=False):
         self.volume=volume
@@ -179,6 +200,7 @@ class LoadWorker(QtCore.QThread):
 
 class MRIWorkspace(Qt.QWidget):
     volume_changed=QtCore.Signal(object)
+    slice_geometry_changed=QtCore.Signal()
     def __init__(self,tracking_view):
         super().__init__()
         self.tracking_view=tracking_view
@@ -189,38 +211,32 @@ class MRIWorkspace(Qt.QWidget):
         outer=Qt.QVBoxLayout(self)
         outer.setContentsMargins(0,0,0,0)
         outer.setSpacing(5)
+        self.setStyleSheet('QPushButton { padding:5px 8px; } QSpinBox, QDoubleSpinBox { padding:3px 5px; }')
         buttons=Qt.QHBoxLayout()
         self.open_button=Qt.QPushButton('Load MRI…')
         self.open_button.setObjectName('primary')
         self.dicom_button=Qt.QPushButton('DICOM folder…')
-        self.demo_button=Qt.QPushButton('Demo')
         self.clear_button=Qt.QPushButton('Unload MRI')
         self.transducer_button=Qt.QPushButton('Transducer…')
+        self.skull_button=Qt.QPushButton('Skull analysis…')
+        self.skull_dialog=None
         self.panes_check=Qt.QCheckBox('Show MRI views')
         self.panes_check.setChecked(True)
-        for widget in [self.open_button,self.dicom_button,self.demo_button,self.clear_button,self.transducer_button]:
+        for widget in [self.open_button,self.dicom_button,self.clear_button,self.transducer_button,self.skull_button]:
             buttons.addWidget(widget)
         buttons.addStretch()
         buttons.addWidget(self.panes_check)
         outer.addLayout(buttons)
-        acoustic_row=Qt.QHBoxLayout()
         self.acoustic_status=Qt.QLabel('Ultrasound transducer and focal field')
         self.acoustic_status.setStyleSheet('color:#e0b77e;font-size:10px;')
         self.acoustic_status.setWordWrap(True)
-        acoustic_row.addWidget(self.acoustic_status,1)
-        acoustic_row.addWidget(Qt.QLabel('Advance along beam'))
-        self.acoustic_shift=Qt.QSpinBox()
-        self.acoustic_shift.setRange(-100,100)
-        self.acoustic_shift.setSuffix(' mm')
-        self.acoustic_shift.setEnabled(False)
-        acoustic_row.addWidget(self.acoustic_shift)
-        outer.addLayout(acoustic_row)
+        outer.addWidget(self.acoustic_status)
         self.open_button.clicked.connect(self.open_nifti)
         self.dicom_button.clicked.connect(self.open_dicom)
-        self.demo_button.clicked.connect(lambda:self.set_volume(demo_volume()))
         self.clear_button.clicked.connect(self.clear)
+        self.skull_button.clicked.connect(self.open_skull_analysis)
         self.panes_check.toggled.connect(self.toggle_panes)
-        self.metadata=Qt.QLabel('No MRI loaded · NIfTI (.nii / .nii.gz) or a DICOM series folder · Files stay local')
+        self.metadata=Qt.QLabel('No MRI loaded · NIfTI (.nii / .nii.gz), FreeSurfer (.mgz / .mgh), or DICOM · Files stay local')
         self.metadata.setWordWrap(True)
         self.metadata.setStyleSheet('color:#9bb0c7;font-size:11px;')
         outer.addWidget(self.metadata)
@@ -231,12 +247,13 @@ class MRIWorkspace(Qt.QWidget):
         outer.addWidget(self.progress)
         contrast=Qt.QHBoxLayout()
         contrast.addWidget(Qt.QLabel('Window'))
-        self.width=Qt.QDoubleSpinBox()
+        from ui_controls import CompactNumber
+        self.width=CompactNumber()
         self.width.setRange(.000001,1e12)
         self.width.setDecimals(3)
         contrast.addWidget(self.width)
         contrast.addWidget(Qt.QLabel('Level'))
-        self.level=Qt.QDoubleSpinBox()
+        self.level=CompactNumber()
         self.level.setRange(-1e12,1e12)
         self.level.setDecimals(3)
         contrast.addWidget(self.level)
@@ -244,10 +261,7 @@ class MRIWorkspace(Qt.QWidget):
         self.reset_button=Qt.QPushButton('Centre slices')
         contrast.addWidget(self.auto_button)
         contrast.addWidget(self.reset_button)
-        self.registration=Qt.QLabel('MRI ↔ tracker: NOT REGISTERED')
-        self.registration.setStyleSheet('color:#f6bb6a;font-size:11px;')
         contrast.addStretch()
-        contrast.addWidget(self.registration)
         outer.addLayout(contrast)
         self.width.valueChanged.connect(self.render)
         self.level.valueChanged.connect(self.render)
@@ -275,12 +289,9 @@ class MRIWorkspace(Qt.QWidget):
         tools=Qt.QHBoxLayout()
         title=Qt.QLabel('3D MRI · MAIN VIEW')
         title.setStyleSheet('color:#67dfe1;font-size:11px;')
-        heading=Qt.QHBoxLayout()
-        heading.addWidget(title)
-        heading.addStretch()
         self.fit_3d=Qt.QPushButton('Fit 3D')
-        heading.addWidget(self.fit_3d)
-        three_layout.addLayout(heading)
+        three_layout.addWidget(title)
+        tools.addWidget(self.fit_3d)
         self.cut_axis=Qt.QComboBox()
         self.cut_axis.addItems(['Axial','Coronal','Sagittal'])
         tools.addWidget(self.cut_axis)
@@ -296,8 +307,22 @@ class MRIWorkspace(Qt.QWidget):
             control.setToolTip(label+' opacity: higher values are less transparent.')
             tools.addWidget(Qt.QLabel(label))
             tools.addWidget(control)
+        self.skull_contour=Qt.QCheckBox('Show skull contour')
+        self.skull_contour.setChecked(True)
+        self.skull_contour.setToolTip('Show or hide skull surfaces and window outlines; the target remains visible.')
+        self.skull_opacity=Qt.QSpinBox()
+        self.skull_opacity.setRange(0,100)
+        self.skull_opacity.setValue(25)
+        self.skull_opacity.setSuffix('%')
+        self.skull_opacity.setToolTip('Skull contour opacity: lower values make the brain easier to see.')
+        tools.addWidget(self.skull_contour)
+        tools.addWidget(Qt.QLabel('Opacity'))
+        tools.addWidget(self.skull_opacity)
         tools.addStretch()
-        three_layout.addLayout(tools)
+        self.mri_tools=Qt.QWidget()
+        self.mri_tools.setLayout(tools)
+        tools.setContentsMargins(4,0,4,0)
+        outer.addWidget(self.mri_tools)
         self.three_stack=Qt.QStackedWidget()
         placeholder=Qt.QLabel('Load MRI to create the 3D working view\nScroll over the volume to reveal internal structures')
         placeholder.setAlignment(QtCore.Qt.AlignCenter)
@@ -309,11 +334,16 @@ class MRIWorkspace(Qt.QWidget):
         three_layout.addWidget(self.three_stack,1)
         self.cut_slider=Qt.QSlider(QtCore.Qt.Horizontal)
         self.cut_slider.setEnabled(False)
-        three_layout.addWidget(self.cut_slider)
         self.cut_info=Qt.QLabel('Wheel: cut in/out · Ctrl+wheel: zoom · Drag: rotate · Click cut face: crosshair')
         self.cut_info.setWordWrap(True)
         self.cut_info.setStyleSheet('color:#8ca3bc;font-size:10px;')
-        three_layout.addWidget(self.cut_info)
+        self.cut_controls=Qt.QWidget()
+        self.cut_controls.setSizePolicy(Qt.QSizePolicy.Ignored, Qt.QSizePolicy.Preferred)
+        cut_layout=Qt.QVBoxLayout(self.cut_controls)
+        cut_layout.setContentsMargins(4,0,4,0)
+        cut_layout.setSpacing(3)
+        cut_layout.addWidget(self.cut_slider)
+        cut_layout.addWidget(self.cut_info)
         self.middle=three_panel
         self.slice_strip=right_layout
         for plane in ['axial','coronal','sagittal']:
@@ -321,20 +351,34 @@ class MRIWorkspace(Qt.QWidget):
         self.split.addWidget(self.left)
         self.split.addWidget(self.middle)
         self.split.setStretchFactor(0,1)
-        self.split.setStretchFactor(1,3)
-        self.split.setSizes([250,720])
+        self.split.setStretchFactor(1,1)
+        self.split.setSizes([600,650])
         scene_row=Qt.QHBoxLayout()
         scene_row.setSpacing(3)
         scene_row.addWidget(self.split,1)
-        scene_row.addWidget(self.right)
+        self.slice_column=Qt.QWidget()
+        slice_layout=Qt.QVBoxLayout(self.slice_column)
+        slice_layout.setContentsMargins(4,4,4,4)
+        slice_layout.setSpacing(3)
+        slice_title=Qt.QLabel('ANATOMICAL VIEWS')
+        slice_title.setStyleSheet(tracking_title.styleSheet())
+        slice_layout.addWidget(slice_title)
+        slice_layout.addWidget(self.right,1)
+        scene_row.addWidget(self.slice_column)
         outer.addLayout(scene_row,1)
+        outer.addWidget(self.cut_controls)
+        self.three_stack.installEventFilter(self)
+        self.middle.installEventFilter(self)
+        self.split.installEventFilter(self)
+        self.cut_controls.installEventFilter(self)
         for pane in self.panes.values():
             pane.selected.connect(self.select)
             pane.sliced.connect(self.slice_changed)
-        self.position=Qt.QLabel('Click an MRI view to place linked crosshairs · Wheel: slices · Ctrl+wheel: zoom')
-        self.position.setWordWrap(True)
-        self.position.setStyleSheet('color:#8ca3bc;font-size:11px;')
-        outer.addWidget(self.position)
+        self.skull_status=Qt.QLabel('')
+        self.skull_status.setWordWrap(True)
+        self.skull_status.setStyleSheet('color:#f6bb6a;font-size:11px;')
+        self.skull_status.hide()
+        outer.addWidget(self.skull_status)
         self.cut_axis.currentIndexChanged.connect(self.render)
         self.model_opacity.valueChanged.connect(self.render)
         self.slice_opacity.valueChanged.connect(self.render)
@@ -346,9 +390,30 @@ class MRIWorkspace(Qt.QWidget):
         self.volume_view.failed.connect(self.failed_3d)
         self.enable_contrast(False)
 
+    def eventFilter(self, watched, event):
+        if watched in (self.three_stack, self.middle, self.split, self.cut_controls) and event.type() in (
+                QtCore.QEvent.Move, QtCore.QEvent.Resize):
+            QtCore.QTimer.singleShot(0, self.align_cut_controls)
+        return super().eventFilter(watched, event)
+
+    def align_cut_controls(self):
+        left = self.three_stack.mapTo(self, QtCore.QPoint()).x() - self.cut_controls.x()
+        right = self.cut_controls.width() - left - self.three_stack.width()
+        self.cut_controls.layout().setContentsMargins(max(0, left), 0, max(0, right), 0)
+
     def toggle_panes(self,visible):
         self.middle.setVisible(visible)
-        self.right.setVisible(visible)
+        self.slice_column.setVisible(visible)
+        self.mri_tools.setVisible(visible)
+        self.cut_controls.setVisible(visible)
+
+    def open_skull_analysis(self):
+        if self.skull_dialog is None:
+            from skull_dialog import SkullDialog
+            self.skull_dialog=SkullDialog(self)
+        self.skull_dialog.show()
+        self.skull_dialog.raise_()
+        self.skull_dialog.activateWindow()
 
     def enable_contrast(self,enabled):
         for widget in [self.width,self.level,self.auto_button,self.reset_button,self.clear_button,
@@ -379,7 +444,7 @@ class MRIWorkspace(Qt.QWidget):
 
     def busy(self,enabled):
         self.progress.setVisible(enabled)
-        for widget in [self.open_button,self.dicom_button,self.demo_button,self.clear_button]:
+        for widget in [self.open_button,self.dicom_button,self.clear_button]:
             widget.setEnabled(not enabled and (widget is not self.clear_button or self.volume is not None))
 
     def run_job(self,function,args,callback,message):
@@ -406,16 +471,17 @@ class MRIWorkspace(Qt.QWidget):
 
     def failed(self,message):
         self.busy(False)
-        self.metadata.setText('MRI load failed. '+('Previous volume remains loaded.' if self.volume else 'No volume loaded.'))
-        Qt.QMessageBox.warning(self,'Cannot load MRI',message)
+        volume_status = 'Previous volume remains loaded.' if self.volume else 'No volume loaded.'
+        self.metadata.setText(f'MRI load failed. {volume_status}\n{message}')
 
     def open_nifti(self):
-        path,_=Qt.QFileDialog.getOpenFileName(self,'Load 3D MRI volume','', 'NIfTI MRI (*.nii *.nii.gz)')
+        path,_=Qt.QFileDialog.getOpenFileName(self,'Load 3D MRI volume','',
+            'MRI volumes (*.nii *.nii.gz *.mgz *.mgh);;FreeSurfer MRI (*.mgz *.mgh);;NIfTI MRI (*.nii *.nii.gz)')
         if path:
             self.load_path(path)
 
     def load_path(self,path):
-        self.run_job(load_nifti,(path,),self.set_volume,'Loading and orienting MRI…')
+        self.run_job(load_mri,(path,),self.set_volume,'Loading and orienting MRI…')
 
     def open_dicom(self):
         folder=Qt.QFileDialog.getExistingDirectory(self,'Select folder containing the DICOM slice files')
@@ -500,9 +566,10 @@ class MRIWorkspace(Qt.QWidget):
         self.cut_slider.blockSignals(False)
         preview='downsampled volume preview' if self.volume_view.preview.shape!=self.volume.data.shape else 'volume preview'
         self.cut_info.setText(f'{description} · Transparent background · {preview}\nClick a 2D view to select its plane · Wheel: slices · Ctrl+wheel: zoom · Drag: orbit')
-        coordinates=self.volume.physical(self.indices)
-        self.position.setText('MRI RAS+ (mm): '+', '.join(f'{v:.2f}' for v in coordinates)+
-            ' · Nearest voxel: '+', '.join(str(i+1) for i in self.indices)+' · Linked anatomical slices follow the cut point')
+        if self.skull_dialog is not None:
+            self.skull_dialog.update_slices()
+            self.skull_dialog.crosshair_changed()
+        self.slice_geometry_changed.emit()
 
     def clear(self):
         self.volume=None
@@ -514,8 +581,7 @@ class MRIWorkspace(Qt.QWidget):
         for pane in self.panes.values():
             pane.clear()
         self.enable_contrast(False)
-        self.metadata.setText('No MRI loaded · NIfTI (.nii / .nii.gz) or a DICOM series folder · Files stay local')
-        self.position.setText('Load an MRI to display linked anatomical views.')
+        self.metadata.setText('No MRI loaded · NIfTI (.nii / .nii.gz), FreeSurfer (.mgz / .mgh), or DICOM · Files stay local')
 
     def is_loading(self):
         return any(job.isRunning() for job in self.jobs)

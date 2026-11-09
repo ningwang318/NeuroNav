@@ -108,7 +108,7 @@ class AcousticPlacement:
     def validate(self):
         if Path(self.profile_name).name!=self.profile_name or not self.profile_name.endswith('.json'):
             raise ValueError('Select a transducer profile from the configuration folder.')
-        if self.mode not in ['manual','preview','tracked']:
+        if self.mode not in ['manual','preview','tracked','holder']:
             raise ValueError('Unknown transducer placement mode.')
         if not self.marker_body.strip():
             raise ValueError('Enter the marker rigid-body name.')

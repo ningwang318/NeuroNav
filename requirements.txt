@@ -6,3 +6,4 @@ PyOpenGL==3.1.10
 nibabel>=5.4,<6
 scipy>=1.17,<2
 SimpleITK==2.5.6
+PyVISA>=1.14,<2

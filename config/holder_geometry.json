@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "source_capture_utc": "2026-11-05T18:13:53.346972+00:00",
+  "samples": 300,
+  "marker_radii_mm": [
+    75,
+    105,
+    135
+  ],
+  "input_angles_deg": {
+    "M1_M2": 30,
+    "M1_M3": 45
+  },
+  "centre_selection": "Opposite side of marker plane from mean calibrated camera position",
+  "axes": "Origin at sphere centre 0; +Z toward M1; +X toward projected M2; +Y completes right-handed basis. Not a beam calibration.",
+  "markers_holder_m": [
+    [
+      -1.0833088366785765e-17,
+      5.165123126404797e-20,
+      0.07499999999999958
+    ],
+    [
+      0.05246507187353433,
+      1.746402497692499e-19,
+      0.09095282347513756
+    ],
+    [
+      0.0123415757254146,
+      -0.09592665248370112,
+      0.09418472609454787
+    ]
+  ],
+  "measured_edges_mm": [
+    54.83681624224451,
+    98.60167885372957,
+    104.03010572875824
+  ],
+  "expected_M1_M2_M1_M3_mm": [
+    54.86437724421091,
+    97.62728963241997
+  ],
+  "edge_std_mm": [
+    0.007946298465341492,
+    0.0036116215194345923,
+    0.002341995066493046
+  ],
+  "derived_angles_deg": [
+    29.977994772860214,
+    45.7600633689449,
+    49.45776756196275
+  ],
+  "centre_reference_mm": [
+    -153.87274206066044,
+    392.3677844554216,
+    75.81310042489149
+  ],
+  "centre_spread_rms_mm": 0.020309989410772916,
+  "centre_to_marker_plane_mm": 70.92103316927573,
+  "note": "Centre inferred from supplied radii/angles and rear-side assumption. Spread includes physical movement; it is not absolute accuracy."
+}

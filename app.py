@@ -1,9 +1,15 @@
-"""NeuroNav v0.2 — standalone OptiTrack workspace. Visualization only."""
+"""NeuroNav v0.2 — tracking workspace and ultrasound generator control."""
 import argparse
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sys
 import time
+
+# The temporary GUI environment may retain only cached pyqtgraph modules.
+# Prefer the recovered project-local copy when available.
+if (Path(__file__).parent/'.runtime'/'pyqtgraph').exists():
+    sys.path.insert(0,str(Path(__file__).parent/'.runtime'))
 
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets as Qt
@@ -17,10 +23,15 @@ from camera_bar import camera_bar_meshes
 from lab_setup import lab_setup_meshes
 from mri_workspace import MRIWorkspace
 from head_phantom import PhantomSettings,mri_head_preview
+from fixed_head import FixedHead
+from holder_tracking import solve_holder
 from mri_3d import ClippedVolume,rgba_data
 from table_layout import TableLayout
 from acoustic_field import AcousticField,AcousticPlacement
 from acoustic_scene import AcousticController
+from ultrasound_panel import UltrasoundPanel
+from robot_panel import RobotPanel
+from ui_controls import CompactNumber
 
 
 ROOT = Path(__file__).resolve().parent
@@ -142,6 +153,18 @@ class Workspace(gl.GLViewWidget):
         self.phantom_items=[]
         self.phantom_signature=None
         self.phantom_pose=None
+        self.fixed_head=None
+        self.holder_observations=[]
+        self.holder_last_write=0
+        self.holder_message=''
+        self.holder_result=None
+        try:
+            attachment=json.loads((ROOT/'config'/'holder_aperture.json').read_text(encoding='utf-8'))
+            self.holder_aperture_offset=np.asarray(attachment['aperture_offset_holder_m'],float)
+            if self.holder_aperture_offset.shape!=(3,) or not np.isfinite(self.holder_aperture_offset).all():
+                raise ValueError('Invalid aperture offset')
+        except (OSError,ValueError,KeyError,TypeError):
+            self.holder_aperture_offset=None
         self.acoustic_body_name=None
         self.phantom_mri=None
         self.phantom_mri_preview=None
@@ -196,8 +219,12 @@ class Workspace(gl.GLViewWidget):
         for item in self.dynamic:
             self.removeItem(item)
         self.dynamic.clear()
+        self.update_holder(frame if fresh else None,models)
         points = frame.markers if frame and fresh and self.show_markers else ()
         points, self.hidden_reference_count = visible_markers(points, self.reference, self.hide_reference_markers)
+        if self.holder_result is not None and len(points):
+            distances=np.linalg.norm(points[:,None]-self.holder_result['markers'][None],axis=2)
+            points=points[np.min(distances,axis=1)>.001]
         self.points.setData(pos=world(points))
         self.update_phantom(frame if fresh else None,models)
         if not frame or not fresh:
@@ -217,20 +244,55 @@ class Workspace(gl.GLViewWidget):
             self.addItem(text)
             self.dynamic.append(text)
 
+    def update_holder(self,frame,models):
+        self.holder_message=''
+        self.holder_result=None
+        if frame is None:
+            return
+        result=None
+        try:
+            crown=None
+            if self.fixed_head and self.reference:
+                crown=self.reference.origin+self.reference.basis@np.asarray(self.fixed_head.data['crown_marker_reference_m'])
+            result=solve_holder(frame.markers,self.reference,models.cameras,crown)
+            self.holder_message='Holder centre 0 located · geometric axes; beam not calibrated'
+            self.holder_result=result
+            if self.holder_aperture_offset is not None:
+                result['aperture_centre']=result['centre']+result['orientation']@self.holder_aperture_offset
+            if not self.holder_observations or self.holder_observations[-1]['frame']!=frame.number:
+                self.holder_observations.append(dict(frame=frame.number,**{k:np.asarray(v).tolist() for k,v in result.items()}))
+                self.holder_observations=self.holder_observations[-300:]
+        except ValueError as exc:
+            self.holder_message='Holder: '+str(exc)
+        if time.monotonic()-self.holder_last_write>1:
+            self.holder_last_write=time.monotonic()
+            output=dict(captured_utc=datetime.now(timezone.utc).isoformat(),
+                frame=frame.number,markers_tracker_m=frame.markers,cameras=models.cameras,
+                status=self.holder_message,observations=self.holder_observations)
+            try:
+                destination=ROOT/'diagnostics'/'holder-live.json'
+                destination.parent.mkdir(exist_ok=True)
+                temporary=destination.with_suffix('.tmp')
+                temporary.write_text(json.dumps(output,allow_nan=False),encoding='utf-8')
+                temporary.replace(destination)
+            except OSError:
+                pass
+
     def update_phantom(self,frame,models):
         body=self.phantom.body(frame,models) if self.phantom.enabled and self.phantom.configured and self.phantom_mri is not None else None
-        self.phantom_pose=None
-        if body is None:
+        fixed_pose=self.fixed_head.pose(self.reference,self.phantom_mri) if self.fixed_head and self.phantom.enabled else None
+        self.phantom_pose=fixed_pose
+        if body is None and fixed_pose is None:
             for item in self.phantom_items:
                 item.setVisible(False)
             return
-        position,orientation=self.phantom.pose(body)
+        position,orientation=fixed_pose if fixed_pose is not None else self.phantom.pose(body)
         self.phantom_pose=(position,orientation)
         transform=np.eye(4)
         transform[:3,:3]=DISPLAY @ orientation
         transform[:3,3]=DISPLAY @ position
         height,width,depth=self.phantom_mri_dimensions
-        scale=np.diag([self.phantom.width_mm/width,self.phantom.height_mm/height,self.phantom.depth_mm/depth,1])
+        scale=np.eye(4) if fixed_pose is not None else np.diag([self.phantom.width_mm/width,self.phantom.height_mm/height,self.phantom.depth_mm/depth,1])
         transform=transform @ scale @ self.phantom_mri_transform
         matrix=QtGui.QMatrix4x4(*transform.ravel().tolist())
         for item in self.phantom_items:
@@ -359,7 +421,12 @@ class Workspace(gl.GLViewWidget):
 
 
 class MainWindow(Qt.QMainWindow):
-    def __init__(self, auto_connect=True):
+    def open_robot_panel(self):
+        panel = RobotPanel(self)
+        panel.exec()
+        panel.deleteLater()
+
+    def __init__(self, auto_connect=False):
         super().__init__()
         self.setWindowTitle('NeuroNav — OptiTrack Tracking Workspace')
         screen=Qt.QApplication.primaryScreen().availableGeometry()
@@ -403,23 +470,26 @@ class MainWindow(Qt.QMainWindow):
         view_menu.addAction('Table size and placement…',self.open_table_layout_dialog)
         phantom_menu=self.menuBar().addMenu('Head phantom')
         phantom_menu.addAction('Marker offset and phantom size…',self.open_phantom_dialog)
-        self.lab_setup_action = view_menu.addAction('Approximate robot, tripod and breadboard')
+        phantom_menu.addAction('Capture crown marker · save head relative to table…',self.open_fixed_head_dialog)
+        tracking_menu = self.menuBar().addMenu('Tracking')
+        robot_menu = self.menuBar().addMenu('Robot')
+        robot_menu.addAction('xArm…', self.open_robot_panel)
+        self.lab_setup_action = view_menu.addAction('Show table / breadboard')
         self.lab_setup_action.setCheckable(True)
         self.lab_setup_action.setChecked(True)
         self.lab_setup_action.toggled.connect(self.toggle_lab_setup)
         root = Qt.QWidget()
         self.setCentralWidget(root)
         outer = Qt.QVBoxLayout(root)
-        outer.setContentsMargins(24, 18, 24, 16)
-        outer.setSpacing(14)
+        outer.setContentsMargins(16, 10, 16, 10)
+        outer.setSpacing(8)
         header = Qt.QHBoxLayout()
         title = Qt.QVBoxLayout()
+        title.setSpacing(2)
         title.addWidget(label('NEURONAV', 25, '#e9f2ff'))
-        title.addWidget(label('Standalone optical tracking  /  v0.2', 12, '#8ca3bc'))
+        self.sonication_banner = label('Session idle', 12, '#67dfe1', wrap=True)
         header.addLayout(title, 1)
         self.badge = label('DISCONNECTED', 12, '#f6bb6a')
-        self.badge.setObjectName('badge')
-        header.addWidget(self.badge)
         outer.addLayout(header)
         split = Qt.QSplitter()
         outer.addWidget(split, 1)
@@ -428,12 +498,16 @@ class MainWindow(Qt.QMainWindow):
         sidebar.setMinimumWidth(300)
         side = Qt.QVBoxLayout(sidebar)
         side.setContentsMargins(0, 0, 16, 0)
-        side.setSpacing(9)
-        side.addWidget(label('01  TRACKING SOURCE', 12, '#67dfe1'))
+        side.setSpacing(6)
+        source_settings = Qt.QWidget()
+        source_layout = Qt.QVBoxLayout(source_settings)
+        source_layout.setContentsMargins(0, 0, 0, 0)
+        source_layout.addWidget(label('TRACKING SOURCE', 12, '#67dfe1'))
         self.source = Qt.QComboBox()
         self.source.addItems(['Standalone · Motive API', 'Network · NatNet'])
-        side.addWidget(self.source)
+        source_layout.addWidget(self.source)
         self.source_forms = Qt.QStackedWidget()
+        self.source_forms.setSizePolicy(Qt.QSizePolicy.Preferred, Qt.QSizePolicy.Maximum)
         api_form_widget = Qt.QWidget()
         api_form = Qt.QFormLayout(api_form_widget)
         api_form.setContentsMargins(0, 0, 0, 0)
@@ -467,26 +541,41 @@ class MainWindow(Qt.QMainWindow):
                              ('Multicast group', self.group), ('Data port', self.port)]:
             form.addRow(name, field)
         self.source_forms.addWidget(network_widget)
-        side.addWidget(self.source_forms)
+        source_layout.addWidget(self.source_forms)
         self.source.currentIndexChanged.connect(self.source_forms.setCurrentIndex)
-        self.connect_button = Qt.QPushButton('Start tracking')
-        self.connect_button.setObjectName('primary')
+        self.connect_button = Qt.QCheckBox('Tracking OFF · Start tracking')
+        self.connect_button.setStyleSheet('''
+            QCheckBox::indicator { width:36px; height:18px; border-radius:9px;
+                background:#344355; border:1px solid #607386; }
+            QCheckBox::indicator:checked { background:#22767d; border-color:#67dfe1; }
+        ''')
         self.connect_button.clicked.connect(self.toggle_connection)
-        side.addWidget(self.connect_button)
+        header.addWidget(self.connect_button)
+        self.message = label('Connect to open the live tracking space.', 12, '#b5c7dc', wrap=True)
         self.source_info = label('Direct camera access · Motive application must be closed', 11, '#8ca3bc', wrap=True)
-        side.addWidget(self.source_info)
-        side.addWidget(label('02  LIVE STATUS', 12, '#67dfe1'))
+        source_layout.addWidget(self.source_info)
+        self.ultrasound = UltrasoundPanel()
+        self.ultrasound.shutdown_finished.connect(self.close)
+        self.ultrasound.worker.session.connect(
+            lambda active, message: self.sonication_banner.setText(message))
+        side.addWidget(self.ultrasound)
+        self.tracking_dialog = Qt.QDialog(self)
+        self.tracking_dialog.setWindowTitle('Tracking settings, status and display')
+        self.tracking_dialog.resize(570, 760)
+        details = self.tracking_dialog
+        detail_side = Qt.QVBoxLayout(details)
+        detail_side.addWidget(label('Standalone optical tracking / v0.2', 12, '#8ca3bc'))
+        tracking_menu.addAction('Settings, status and display…', self.open_tracking_dialog)
+        detail_side.addWidget(source_settings)
+        detail_side.addWidget(label('LIVE STATUS', 12, '#67dfe1'))
         stats = Qt.QGridLayout()
         self.metrics = {}
         for row, name in enumerate(['Stream', 'Frame', 'Receive rate', 'Frame age', 'Markers', 'Rigid bodies', 'Cameras']):
             stats.addWidget(label(name, 12, '#8ca3bc'), row, 0)
             self.metrics[name] = label('—', 12, '#e9f2ff')
             stats.addWidget(self.metrics[name], row, 1)
-        side.addLayout(stats)
-        self.message = label('Connect to open the live tracking space.', 12, '#b5c7dc', wrap=True)
-        self.message.setMinimumHeight(60)
-        side.addWidget(self.message)
-        side.addWidget(label('03  DISPLAY', 12, '#67dfe1'))
+        detail_side.addLayout(stats)
+        detail_side.addWidget(label('DISPLAY', 12, '#67dfe1'))
         self.markers_check = Qt.QCheckBox('Observed markers')
         self.markers_check.setChecked(True)
         self.camera_check = Qt.QCheckBox('Trio 3 camera bar')
@@ -495,7 +584,7 @@ class MainWindow(Qt.QMainWindow):
         self.grid_check.setChecked(False)
         for check in [self.markers_check, self.camera_check, self.grid_check]:
             check.toggled.connect(self.display_changed)
-            side.addWidget(check)
+            detail_side.addWidget(check)
         buttons = Qt.QHBoxLayout()
         fit = Qt.QPushButton('Fit scene')
         fit.clicked.connect(self.fit_scene)
@@ -506,16 +595,18 @@ class MainWindow(Qt.QMainWindow):
         camera_view = Qt.QPushButton('Camera view')
         camera_view.clicked.connect(self.focus_camera_bar)
         buttons.addWidget(camera_view)
-        side.addLayout(buttons)
+        detail_side.addLayout(buttons)
         phantom_settings=Qt.QPushButton('Head phantom settings…')
         phantom_settings.clicked.connect(self.open_phantom_dialog)
-        side.addWidget(phantom_settings)
+        detail_side.addWidget(phantom_settings)
         save = Qt.QPushButton('Save diagnostics…')
         save.clicked.connect(self.save_diagnostics)
-        side.addWidget(save)
-        side.addWidget(label('Drag: orbit   ·   Wheel: zoom\nCtrl + drag: pan', 11, '#8ca3bc'))
-        side.addStretch()
-        side.addWidget(label('Camera symbols show calibrated poses. The grid is a display reference; it does not define calibrated tracking coverage.', 11, '#8ca3bc', wrap=True))
+        detail_side.addWidget(save)
+        detail_side.addWidget(label('Drag: orbit   ·   Wheel: zoom\nCtrl + drag: pan', 11, '#8ca3bc'))
+        detail_side.addWidget(label('Camera symbols show calibrated poses. The grid is a display reference; it does not define calibrated tracking coverage.', 11, '#8ca3bc', wrap=True))
+        close_tracking = Qt.QDialogButtonBox(Qt.QDialogButtonBox.Close)
+        close_tracking.rejected.connect(details.hide)
+        detail_side.addWidget(close_tracking)
         split.addWidget(sidebar)
         right = Qt.QWidget()
         layout = Qt.QVBoxLayout(right)
@@ -524,27 +615,46 @@ class MainWindow(Qt.QMainWindow):
         toolbar = Qt.QHBoxLayout()
         toolbar.addWidget(label('NAVIGATION AND MRI', 13, '#e9f2ff'))
         toolbar.addStretch()
-        self.coordinate_label = label('Tracker coordinates · Y up · millimetres', 11, '#8ca3bc')
-        toolbar.addWidget(self.coordinate_label)
         layout.addLayout(toolbar)
         self.view = Workspace()
         self.view.table_layout=self.table_layout
         self.view.phantom=self.phantom
+        self.fixed_head_path=ROOT/'config'/'fixed_head.json'
+        try:
+            self.view.fixed_head=FixedHead.load(self.fixed_head_path)
+        except (OSError,ValueError,KeyError,TypeError):
+            self.view.fixed_head=None
         self.mri_workspace = MRIWorkspace(self.view)
         self.acoustic_path=ROOT/'config'/'acoustic_placement.json'
         acoustic_placement=AcousticPlacement.load(self.acoustic_path)
         self.acoustic=AcousticController(self,AcousticField(ROOT/'config'/acoustic_placement.profile_name),acoustic_placement)
         self.mri_workspace.transducer_button.clicked.connect(self.open_acoustic_dialog)
-        self.mri_workspace.acoustic_shift.setValue(round(self.acoustic.placement.beam_shift_mm))
-        self.mri_workspace.acoustic_shift.valueChanged.connect(self.move_acoustic_beam)
         self.acoustic.update()
         self.mri_workspace.volume_changed.connect(self.phantom_mri_changed)
         layout.addWidget(self.mri_workspace, 1)
-        self.scene_hint = label('Waiting for live tracking · lab equipment is an approximate static illustration.', 12, '#8ca3bc')
-        layout.addWidget(self.scene_hint)
+        self.scene_hint = label('Waiting for live tracking.', 12, '#8ca3bc', wrap=True)
         self.phantom_status=label('Head phantom: waiting for a tracked Head rigid body · assumed dimensions / offset',11,'#d6a96a',wrap=True)
-        layout.addWidget(self.phantom_status)
-        layout.addWidget(label('RIGID BODIES', 12, '#67dfe1'))
+        messages = Qt.QWidget()
+        message_layout = Qt.QVBoxLayout(messages)
+        message_layout.setContentsMargins(0, 0, 0, 0)
+        message_layout.addStretch()
+        message_layout.addWidget(self.ultrasound.status)
+        message_layout.addWidget(self.sonication_banner)
+        message_layout.addWidget(self.badge)
+        message_layout.addWidget(self.message)
+        message_layout.addWidget(self.mri_workspace.metadata)
+        message_layout.addWidget(self.mri_workspace.acoustic_status)
+        message_layout.addWidget(self.mri_workspace.skull_status)
+        message_layout.addWidget(self.scene_hint)
+        message_layout.addWidget(self.phantom_status)
+        message_area = Qt.QScrollArea()
+        message_area.setFrameShape(Qt.QFrame.NoFrame)
+        message_area.setWidgetResizable(True)
+        message_area.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        message_area.setWidget(messages)
+        side.addWidget(message_area, 1)
+        rigid_title=label('RIGID BODIES', 12, '#67dfe1')
+        layout.addWidget(rigid_title)
         self.table = Qt.QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(['Body', 'Status', 'X (mm)', 'Y (mm)', 'Z (mm)', 'Fit error (mm)', 'Quaternion (x, y, z, w)'])
         self.table.horizontalHeader().setSectionResizeMode(Qt.QHeaderView.ResizeToContents)
@@ -556,15 +666,25 @@ class MainWindow(Qt.QMainWindow):
         self.table.setMaximumHeight(140)
         self.table.setMinimumHeight(105)
         layout.addWidget(self.table)
+        rigid_title.hide()
+        self.table.hide()
+        coordinates_action=view_menu.addAction('Show rigid-body coordinates')
+        coordinates_action.setCheckable(True)
+        coordinates_action.toggled.connect(rigid_title.setVisible)
+        coordinates_action.toggled.connect(self.table.setVisible)
         split.addWidget(right)
         split.setStretchFactor(1, 1)
         split.setSizes([330, 1000])
-        outer.addWidget(label('RESEARCH PROTOTYPE  ·  Robot/tripod layout approximate; robot pose static  ·  No robot or ultrasound control', 11, '#8ca3bc'))
         self.timer = QtCore.QTimer(self)
         self.timer.timeout.connect(self.refresh)
         self.timer.start(33)
         if auto_connect:
             QtCore.QTimer.singleShot(150, self.toggle_connection)
+
+    def open_tracking_dialog(self):
+        self.tracking_dialog.show()
+        self.tracking_dialog.raise_()
+        self.tracking_dialog.activateWindow()
 
     def browse_config(self, field, pattern):
         path, _ = Qt.QFileDialog.getOpenFileName(self, 'Select tracking configuration', field.text(), pattern)
@@ -575,6 +695,10 @@ class MainWindow(Qt.QMainWindow):
     def open_phantom_dialog(self):
         from phantom_dialog import open_phantom_dialog
         open_phantom_dialog(self)
+
+    def open_fixed_head_dialog(self):
+        from fixed_head_dialog import open_fixed_head_dialog
+        open_fixed_head_dialog(self)
 
     def open_table_layout_dialog(self):
         from copy import deepcopy
@@ -589,7 +713,7 @@ class MainWindow(Qt.QMainWindow):
                            ('center_x_mm','Center X'),('center_z_mm','Center Z'),('top_y_mm','Top Y'),
                            ('yaw_deg','Table yaw'),('robot_x_mm','Robot base X from table center'),
                            ('robot_z_mm','Robot base Z from table center')]:
-            field=Qt.QDoubleSpinBox()
+            field=CompactNumber()
             field.setRange(-3000,3000)
             field.setDecimals(2)
             field.setSuffix('°' if name=='yaw_deg' else ' mm')
@@ -622,21 +746,17 @@ class MainWindow(Qt.QMainWindow):
         if volume is not None and self.phantom.use_mri_size and self.view.phantom_mri_dimensions is not None:
             self.phantom.adopt_mri_size(self.view.phantom_mri_dimensions)
             self.phantom.save(self.phantom_path)
+        self.view.update_phantom(None,Models())
         self.acoustic.update()
 
     def open_acoustic_dialog(self):
         from acoustic_dialog import open_acoustic_dialog
         open_acoustic_dialog(self)
 
-    def move_acoustic_beam(self,value):
-        self.acoustic.placement.beam_shift_mm=float(value)
-        self.acoustic.update()
-        self.acoustic.placement.save(self.acoustic_path)
-
     def clear_reference(self):
         self.reference = None
         self.view.set_reference(None)
-        self.coordinate_label.setText('Tracker coordinates · Y up · millimetres')
+        self.view.update_phantom(None,Models())
         self.fit_scene()
 
     def toggle_saved_geometry(self, checked):
@@ -658,7 +778,7 @@ class MainWindow(Qt.QMainWindow):
     def apply_reference(self, reference):
         self.reference = reference
         self.view.set_reference(reference)
-        self.coordinate_label.setText('Three-marker reference · Y normal · millimetres')
+        self.view.update_phantom(None,Models())
 
     def open_reference_dialog(self):
         if self.reference_dialog:
@@ -763,7 +883,6 @@ class MainWindow(Qt.QMainWindow):
             self.receiver.stop()
             self.receiver = None
             self.badge.setText('DISCONNECTED')
-            self.connect_button.setText('Start tracking')
             self.message.setText('Disconnected. Live observations have been cleared.')
             self.view.points.setData(pos=np.empty((0, 3)))
             for item in self.view.dynamic:
@@ -771,7 +890,7 @@ class MainWindow(Qt.QMainWindow):
             self.view.dynamic.clear()
             self.view.update_phantom(None,Models())
             self.acoustic.update(None,None,False)
-            self.phantom_status.setText('Head phantom hidden: tracking disconnected')
+            self.phantom_status.setText('Head phantom fixed to saved table reference · tracking disconnected' if self.view.phantom_pose is not None else 'Head phantom hidden: tracking disconnected')
             self.table.setRowCount(0)
             self.scene_hint.setText('Disconnected. Camera poses remain as reference geometry.')
             for metric in self.metrics.values():
@@ -790,13 +909,14 @@ class MainWindow(Qt.QMainWindow):
             self.last_rate_time = time.monotonic()
             self.last_rate_count = 0
             self.rate = 0
-            self.connect_button.setText('Stop tracking')
             for name, value in [('server', self.server.text()), ('interface', self.interface.text()),
                                 ('group', self.group.text()), ('port', self.port.value()),
                                 ('api_install', self.install.text()), ('api_calibration', self.calibration.text()),
                                 ('api_profile', self.profile.text())]:
                 self.settings.setValue(name, value)
             self.settings.sync()
+        self.connect_button.setChecked(self.receiver is not None)
+        self.connect_button.setText('Tracking ON · Stop tracking' if self.receiver else 'Tracking OFF · Start tracking')
         for field in [self.server, self.interface, self.group, self.port]:
             field.setEnabled(self.receiver is None)
         self.source.setEnabled(self.receiver is None)
@@ -854,8 +974,6 @@ class MainWindow(Qt.QMainWindow):
                     self.phantom_status.setText('Phantom placement is active but could not be saved: '+str(exc))
         self.view.render_frame(frame, fresh, models)
         self.acoustic.update(frame,models,fresh)
-        self.mri_workspace.acoustic_shift.setEnabled(self.acoustic.field.calibrated and self.acoustic.placement.mode=='manual'
-                                                     and self.mri_workspace.volume is not None)
         if not self.phantom.enabled:
             self.phantom_status.setText('Head phantom hidden · Head phantom menu: marker offset and size')
         elif self.view.phantom_mri is None:
@@ -864,13 +982,12 @@ class MainWindow(Qt.QMainWindow):
             bottom=self.view.phantom_pose[0]
             if self.reference:
                 bottom=self.reference.points([bottom])[0]
-            self.phantom_status.setText('MRI head model · tracked with assumed offset · Bottom center (mm): '+
+            mode='FIXED to table · crown marker may be removed · assumed orientation / estimated MRI crown' if self.view.fixed_head else 'tracked with assumed offset'
+            self.phantom_status.setText('MRI head model · '+mode+' · Bottom center (mm): '+
                 ', '.join(f'{v*1000:.1f}' for v in bottom)+' · Head phantom menu: edit offset / size')
         else:
             self.phantom_status.setText('Head phantom hidden: '+('waiting for fresh '+self.phantom.body_name+' pose' if self.phantom.configured else
                 'needs table reference and live '+self.phantom.body_name+' pose to initialize assumed placement'))
-        self.mri_workspace.registration.setText('MRI → markers: ASSUMED OFFSET' if self.view.phantom_mri is not None and
-            self.phantom.configured and self.phantom.enabled else 'MRI ↔ tracker: NOT REGISTERED')
         if not self.fitted and models.cameras:
             self.fit_scene()
             self.fitted = True
@@ -882,7 +999,7 @@ class MainWindow(Qt.QMainWindow):
             self.metrics['Markers'].setText(f'{len(frame.markers)} detected / {hidden} hidden')
             self.scene_hint.setText(f'{len(frame.markers)-hidden} visible markers  ·  {hidden} reference markers hidden  ·  {tracked} tracked bodies  ·  {len(models.cameras)} calibrated cameras')
         else:
-            self.scene_hint.setText('Live observations hidden until fresh frames arrive.' if frame else 'Waiting for live tracking · lab equipment is an approximate static illustration.')
+            self.scene_hint.setText('Live observations hidden until fresh frames arrive.' if frame else 'Waiting for live tracking.')
         self.update_table(display_frame, fresh, display_models)
 
     def update_table(self, frame, fresh, models):
@@ -981,6 +1098,10 @@ class MainWindow(Qt.QMainWindow):
             Qt.QMessageBox.warning(self, 'Cannot save diagnostics', str(exc))
 
     def closeEvent(self, event):
+        # Stop sonication before waiting for unrelated MRI loading to finish.
+        if not self.ultrasound.shutdown():
+            event.ignore()
+            return
         if self.mri_workspace.is_loading():
             self.mri_workspace.finish_before_close(self.close)
             event.ignore()
@@ -994,8 +1115,8 @@ class MainWindow(Qt.QMainWindow):
 STYLE = '''
 QWidget { background:#101c2c; color:#d7e4f3; font-family:'Segoe UI'; font-size:12px; }
 QLabel { background:transparent; }
-QLineEdit, QSpinBox { background:#182a3d; border:1px solid #2a4057; border-radius:5px; padding:7px; }
-QLineEdit:disabled, QSpinBox:disabled { color:#7c91a6; }
+QLineEdit, QSpinBox, QDoubleSpinBox { background:#182a3d; border:1px solid #2a4057; border-radius:5px; padding:7px; }
+QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled { color:#7c91a6; }
 QPushButton { background:#21364b; border:1px solid #304b66; border-radius:6px; padding:9px; }
 QPushButton:hover { background:#2c4760; }
 QPushButton#primary { background:#22767d; border-color:#3a9fa7; color:white; font-weight:600; }
@@ -1009,10 +1130,11 @@ QSplitter::handle { background:#24364b; width:1px; }
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--offline', action='store_true', help='Open without auto-connecting')
+    parser.add_argument('--offline', action='store_true', help='Open without tracking (the default)')
+    parser.add_argument('--start-tracking', action='store_true', help='Start the configured tracking service on opening')
     parser.add_argument('--use-saved-reference', action='store_true', help='Explicitly apply the saved XYZ reference on opening')
     parser.add_argument('--camera-close-up', action='store_true', help='Open a close-up view of the camera bar')
-    parser.add_argument('--mri-file', help='Load a local NIfTI volume')
+    parser.add_argument('--mri-file', help='Load a local NIfTI or FreeSurfer MGH/MGZ volume')
     parser.add_argument('--mri-demo', action='store_true', help='Show a clearly labelled synthetic MRI phantom')
     parser.add_argument('--smoke-seconds', type=float, default=0, help=argparse.SUPPRESS)
     args = parser.parse_args()
@@ -1022,16 +1144,18 @@ def main():
     app = Qt.QApplication(sys.argv[:1])
     app.setStyle('Fusion')
     app.setStyleSheet(STYLE)
-    window = MainWindow(auto_connect=not args.offline)
+    window = MainWindow(auto_connect=args.start_tracking)
     window.camera_closeup_pending = args.camera_close_up
-    if args.use_saved_reference:
+    if args.use_saved_reference or window.view.fixed_head is not None:
         window.use_saved_reference()
     if args.mri_file:
         window.mri_workspace.load_path(args.mri_file)
     elif args.mri_demo:
         from mri_volume import demo_volume
         window.mri_workspace.set_volume(demo_volume())
-    window.show()
+    elif window.view.fixed_head is not None:
+        window.mri_workspace.load_path(window.view.fixed_head.data['mri_source'])
+    window.showMaximized()
     if args.smoke_seconds:
         QtCore.QTimer.singleShot(int(args.smoke_seconds * 1000), window.close)
     return app.exec()

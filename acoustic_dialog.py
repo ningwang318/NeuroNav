@@ -39,7 +39,8 @@ def open_acoustic_dialog(window):
     outer.addLayout(row,1)
     layer=None
     def spin(value,maximum=1000,suffix=' mm',minimum=0,decimals=3):
-        control=Qt.QDoubleSpinBox()
+        from ui_controls import CompactNumber
+        control=CompactNumber()
         control.setRange(minimum,maximum)
         control.setDecimals(decimals)
         control.setSuffix(suffix)
@@ -91,6 +92,7 @@ def open_acoustic_dialog(window):
     mode.addItem('Manual MRI preview','manual')
     mode.addItem('Live marker preview (provisional attachment)','preview')
     mode.addItem('Tracked markers (requires attachment calibration)','tracked')
+    mode.addItem('Radial holder · measured aperture attachment','holder')
     mode.setCurrentIndex(mode.findData(draft.mode))
     pose_form.addRow('Placement',mode)
     positions=[];rotations=[]
@@ -230,9 +232,6 @@ def open_acoustic_dialog(window):
             draft.save(window.acoustic_path)
             controller.placement=draft
             controller.rebuild(selected)
-            shift=window.mri_workspace.acoustic_shift
-            shift.blockSignals(True);shift.setValue(round(draft.beam_shift_mm));shift.blockSignals(False)
-            shift.setEnabled(selected.calibrated and draft.mode=='manual')
             dialog.accept()
         except (ValueError,OSError) as exc:
             status.setText(str(exc))

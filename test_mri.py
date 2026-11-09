@@ -5,17 +5,56 @@ import tempfile
 import unittest
 import uuid
 import time
+import gzip
+from unittest.mock import patch,Mock
 
 import nibabel as nib
 import numpy as np
 import SimpleITK as sitk
 from PySide6 import QtWidgets as Qt
 
-from mri_volume import prepare_volume,load_nifti,dicom_series,load_dicom_series,demo_volume
+from mri_volume import prepare_volume,load_mri,load_nifti,dicom_series,load_dicom_series,demo_volume
 from mri_workspace import MRIWorkspace
 
 
 class MRITests(unittest.TestCase):
+    def test_mgh_and_mgz_preserve_scanner_ras_geometry_and_voxel_values(self):
+        data=np.arange(5*6*7,dtype=np.float32).reshape(5,6,7)
+        affine=np.array([[-1.2,0,0,30],[0,0,-2.5,50],[0,1.7,0,-40],[0,0,0,1]])
+        with tempfile.TemporaryDirectory() as directory:
+            for suffix in ['.mgh','.mgz']:
+                path=Path(directory)/('anatomical'+suffix)
+                nib.save(nib.freesurfer.mghformat.MGHImage(data,affine),path)
+                expected=nib.as_closest_canonical(nib.load(path,mmap=False,keep_file_open=False))
+                actual=load_mri(path)
+                np.testing.assert_array_equal(actual.data,expected.get_fdata(dtype=np.float32))
+                np.testing.assert_allclose(actual.affine,expected.affine,atol=1e-5)
+                np.testing.assert_allclose(actual.spacing,[1.2,2.5,1.7],atol=1e-6)
+                self.assertIn('scanner RAS',actual.note)
+
+    def test_mgz_without_spatial_geometry_is_not_silently_given_default_axes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'missing-geometry.mgz'
+            nib.save(nib.freesurfer.mghformat.MGHImage(np.ones((4,5,6),np.float32),np.eye(4)),path)
+            with gzip.open(path,'rb') as source:
+                raw=bytearray(source.read())
+            raw[28:30]=b'\x00\x00'
+            with gzip.open(path,'wb') as output:
+                output.write(raw)
+            with self.assertRaisesRegex(ValueError,'scanner RAS'):
+                load_mri(path)
+
+    def test_file_picker_offers_freesurfer_files_and_dispatches_them(self):
+        app=Qt.QApplication.instance() or Qt.QApplication([])
+        workspace=MRIWorkspace(Qt.QWidget())
+        workspace.load_path=Mock()
+        with patch.object(Qt.QFileDialog,'getOpenFileName',return_value=('chosen.mgz','')) as picker:
+            workspace.open_nifti()
+        self.assertIn('*.mgz',picker.call_args.args[3])
+        self.assertIn('*.mgh',picker.call_args.args[3])
+        workspace.load_path.assert_called_once_with('chosen.mgz')
+        workspace.close()
+
     def test_background_nifti_load_completes_without_blocking_gui(self):
         app=Qt.QApplication.instance() or Qt.QApplication([])
         workspace=MRIWorkspace(Qt.QWidget())

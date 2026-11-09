@@ -42,7 +42,7 @@ class ReferenceGUITest(unittest.TestCase):
             saved = ReferencePlane.load(window.reference_path)
             np.testing.assert_allclose(saved.points(points)[:, 1], 0, atol=1e-12)
             self.assertIn('61 samples', window.reference_status.text())
-            self.assertIn('Three-marker reference', window.coordinate_label.text())
+            self.assertIs(window.view.reference, window.reference)
             self.assertEqual(len(window.view.reference_items), 0)
             ref = window.reference
             np.testing.assert_allclose(window.view.origin_items[0].pos,

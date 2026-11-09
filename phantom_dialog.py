@@ -30,7 +30,8 @@ def open_phantom_dialog(window):
     use_mri_size.setChecked(draft.use_mri_size)
     form.addRow(use_mri_size)
     def spin(value,minimum,maximum,suffix):
-        field=Qt.QDoubleSpinBox()
+        from ui_controls import CompactNumber
+        field=CompactNumber()
         field.setRange(minimum,maximum)
         field.setDecimals(2)
         field.setSuffix(suffix)

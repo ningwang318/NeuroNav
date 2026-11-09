@@ -168,5 +168,68 @@ class AcousticTests(unittest.TestCase):
         window.close()
 
 
+    def test_radial_holder_places_field_at_aperture_and_hides_on_loss(self):
+        app=Qt.QApplication.instance() or Qt.QApplication([])
+        window=MainWindow(auto_connect=False)
+        window.timer.stop()
+        window.phantom.use_mri_size=False
+        window.mri_workspace.set_volume(demo_volume())
+        window.acoustic.rebuild(self.field())
+        controller=window.acoustic
+        controller.placement.mode='holder'
+        controller.placement.beam_shift_mm=-7  # Old manual shift must not alter attachment.
+        window.view.phantom_pose=(np.array([.2,.3,.4]),np.eye(3))
+        aperture=np.array([.1,.2,.3])
+        window.view.holder_result=dict(orientation=np.eye(3),aperture_centre=aperture)
+        frame=Frame(1,time.monotonic(),(),(),0)
+        controller.update(frame,Models(),True)
+        np.testing.assert_allclose(controller.tracker_pose[:3,3],aperture)
+        np.testing.assert_allclose(controller.tracker_pose[:3,2],[0,0,-.001])
+        np.testing.assert_allclose(tracker_from_mri(window.view)@controller.mri_pose,controller.tracker_pose,atol=1e-12)
+        self.assertTrue(controller.tracking_layer.items[0].visible())
+        window.view.holder_result=None
+        controller.update(frame,Models(),True)
+        self.assertFalse(controller.tracking_layer.items[0].visible())
+        self.assertFalse(controller.mri_layer.items[0].visible())
+        window.close()
+
+
+    def test_field_sections_follow_the_mri_slice_and_clear_when_hidden(self):
+        app = Qt.QApplication.instance() or Qt.QApplication([])
+        window = MainWindow(auto_connect=False)
+        window.timer.stop()
+        window.phantom.use_mri_size = False
+        workspace = window.mri_workspace
+        workspace.set_volume(demo_volume())
+        controller = window.acoustic
+        controller.rebuild(self.field())
+        placement = controller.placement
+        placement.mode = 'manual'
+        placement.enabled = True
+        placement.visible_thresholds = [-3]
+        placement.rotation_deg = [0, 0, 0]
+        placement.beam_shift_mm = 0
+        placement.manual_initialized = True
+        vertices = controller.field.local_points(controller.field.surfaces[-3]['vertices'])
+        target = workspace.volume.physical(workspace.indices)
+        placement.position_mm = target - vertices.mean(axis=0)
+        controller.update()
+
+        for pane in workspace.panes.values():
+            self.assertTrue(pane.field_contours[-3].isVisible())
+        contour = controller.section_items[-3]
+        self.assertTrue(contour.visible())
+        np.testing.assert_allclose(contour.pos[:, 2], target[2], atol=1e-5)
+        workspace.indices[2] = 0
+        workspace.render()
+        self.assertFalse(contour.visible())
+        self.assertFalse(workspace.panes['axial'].field_contours[-3].isVisible())
+        self.assertTrue(workspace.panes['coronal'].field_contours[-3].isVisible())
+        placement.enabled = False
+        controller.update()
+        self.assertFalse(workspace.panes['coronal'].field_contours[-3].isVisible())
+        window.close()
+
+
 if __name__=='__main__':
     unittest.main()

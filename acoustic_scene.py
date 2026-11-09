@@ -6,8 +6,25 @@ import pyqtgraph.opengl as gl
 from OpenGL import GL
 from acoustic_field import transducer_geometry
 from camera_bar import rotation
-from mri_3d import preview_affine
+from mri_3d import preview_affine, PLANE_AXES
 from scipy.spatial.transform import Rotation
+
+
+SECTION_COLORS = {-12: (75, 195, 255), -6: (137, 233, 97), -3: (255, 102, 104)}
+
+
+def section_segments(vertices, faces, axis, index):
+    """Intersect a triangular field surface with a voxel-centre plane."""
+    distances = vertices[:, axis] - index
+    signed = distances[faces]
+    crossing = (signed > 0).any(axis=1) & (signed <= 0).any(axis=1)
+    faces = faces[crossing]
+    start = faces
+    end = faces[:, [1, 2, 0]]
+    edges = (distances[start] > 0) != (distances[end] > 0)
+    a, b = start[edges], end[edges]
+    fraction = distances[a] / (distances[a] - distances[b])
+    return vertices[a] + fraction[:, None] * (vertices[b] - vertices[a])
 
 
 class FieldMesh(gl.GLMeshItem):
@@ -88,7 +105,8 @@ def tracker_from_mri(view):
     matrix[:3,:3]=orientation
     matrix[:3,3]=position
     height,width,depth=view.phantom_mri_dimensions
-    scale=np.diag([view.phantom.width_mm/width,view.phantom.height_mm/height,view.phantom.depth_mm/depth,1])
+    fixed=getattr(view,'fixed_head',None)
+    scale=np.eye(4) if fixed is not None and fixed.pose(view.reference,view.phantom_mri) is not None else np.diag([view.phantom.width_mm/width,view.phantom.height_mm/height,view.phantom.depth_mm/depth,1])
     ras_to_head=view.phantom_mri_transform @ np.linalg.inv(preview_affine(view.phantom_mri,view.phantom_mri_preview.shape))
     return matrix @ scale @ ras_to_head  # MRI mm -> tracker m
 
@@ -103,6 +121,61 @@ class AcousticController:
         self.fresh=False
         self.mri_pose=None
         self.tracker_pose=None
+        self.section_items = {}
+        self.section_key = None
+        section_options = {GL.GL_DEPTH_TEST: False, GL.GL_BLEND: True,
+                           'glBlendFunc': (GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)}
+        for threshold, color in SECTION_COLORS.items():
+            item = gl.GLLinePlotItem(mode='lines', width=2, antialias=True,
+                                     color=tuple(c / 255 for c in color) + (1,),
+                                     glOptions=section_options)
+            item.setDepthValue(45)
+            item.hide()
+            window.mri_workspace.volume_view.addItem(item)
+            self.section_items[threshold] = item
+        self.crosshair = gl.GLScatterPlotItem(size=7, color=(.4, 1., 1., 1.),
+                                             glOptions=section_options)
+        self.crosshair.setDepthValue(46)
+        self.crosshair.hide()
+        window.mri_workspace.volume_view.addItem(self.crosshair)
+        window.mri_workspace.slice_geometry_changed.connect(self.update_sections)
+
+    def update_sections(self):
+        workspace = self.window.mri_workspace
+        volume = workspace.volume
+        pose = self.mri_pose
+        thresholds = tuple(self.placement.visible_thresholds)
+        active = workspace.active_plane()
+        show_face = workspace.cut_check.isChecked()
+        key = (id(volume), id(self.field), None if pose is None else pose.tobytes(),
+               thresholds, tuple(workspace.indices), active, show_face)
+        if key == self.section_key:
+            return
+        self.section_key = key
+        sections = {plane: {} for plane in workspace.panes}
+        if volume is not None and pose is not None and self.field.calibrated:
+            to_voxel = np.linalg.solve(volume.affine, pose)
+            for threshold in thresholds:
+                mesh = self.field.surfaces[threshold]
+                local = self.field.local_points(mesh['vertices'])
+                voxels = local @ to_voxel[:3, :3].T + to_voxel[:3, 3]
+                for plane, values in sections.items():
+                    axis = PLANE_AXES[plane]
+                    points = section_segments(voxels, mesh['faces'], axis, workspace.indices[axis])
+                    if len(points):
+                        values[threshold] = (points, SECTION_COLORS[threshold])
+        for plane, pane in workspace.panes.items():
+            pane.show_field_sections(sections[plane])
+        for threshold, item in self.section_items.items():
+            contour = sections[active].get(threshold)
+            item.setVisible(show_face and contour is not None)
+            if show_face and contour is not None:
+                points = contour[0]
+                item.setData(pos=points @ volume.affine[:3, :3].T + volume.affine[:3, 3])
+        show_crosshair = show_face and volume is not None and pose is not None
+        self.crosshair.setVisible(show_crosshair)
+        if show_crosshair:
+            self.crosshair.setData(pos=np.array([volume.physical(workspace.indices)]))
 
     def rebuild(self,field=None):
         self.tracking_layer.clear()
@@ -111,9 +184,14 @@ class AcousticController:
             self.field=field
         self.tracking_layer=AcousticLayer(self.window.view,self.field)
         self.mri_layer=AcousticLayer(self.window.mri_workspace.volume_view,self.field)
+        self.section_key = None
         self.update()
 
     def update(self,frame=None,models=None,fresh=None):
+        self.update_pose(frame,models,fresh)
+        self.update_sections()
+
+    def update_pose(self,frame=None,models=None,fresh=None):
         if fresh is not None:
             self.last_frame,self.last_models,self.fresh=frame,models,fresh
         w,p,f=self.window,self.placement,self.field
@@ -133,6 +211,18 @@ class AcousticController:
         mapping=tracker_from_mri(w.view) if live else None
         display=np.eye(4);display[:3,:3]=np.array([[1,0,0],[0,0,-1],[0,1,0]])
         tracker_pose=None
+        if p.mode=='holder':
+            holder=getattr(w.view,'holder_result',None) if live else None
+            if holder is None or 'aperture_centre' not in holder:
+                status.setText('US: waiting for three identified holder markers')
+                return
+            tracker_pose=np.eye(4)
+            # Beam points from holder through aperture, opposite the M1 ray.
+            tracker_pose[:3,:3]=holder['orientation'] @ np.diag([1.,-1.,-1.])*.001
+            tracker_pose[:3,3]=holder['aperture_centre']
+            self.tracker_pose=tracker_pose
+            self.tracking_layer.pose(display @ tracker_pose)
+            self.tracking_layer.visible(True,p.visible_thresholds)
         if p.mode in ['preview','tracked']:
             if p.mode=='tracked' and not p.marker_calibrated:
                 status.setText('US: marker-to-transducer attachment is not calibrated')
@@ -166,7 +256,7 @@ class AcousticController:
                 status.setText('US: transducer live on left · waiting for head pose to locate it relative to MRI')
                 return
             mri_pose=np.linalg.inv(mapping) @ tracker_pose
-            status.setText('US · LIVE MARKER PREVIEW · provisional transducer offset / assumed head alignment' if p.mode=='preview' else
+            status.setText('US · LIVE HOLDER · 185 mm opposite M1 · beam away from holder · head alignment requires review' if p.mode=='holder' else 'US · LIVE MARKER PREVIEW · provisional transducer offset / assumed head alignment' if p.mode=='preview' else
                            'US · TRACKED · MRI/head alignment uses the assumed head offset')
         self.mri_pose=mri_pose
         self.mri_layer.pose(mri_pose)

@@ -1,10 +1,10 @@
 {
   "profile_name": "transducer_500khz.json",
   "enabled": true,
-  "mode": "preview",
+  "mode": "holder",
   "position_mm": [
     0.25,
-    -18.249999999999996,
+    -18.25,
     60.5
   ],
   "rotation_deg": [
@@ -12,7 +12,7 @@
     0.0,
     0.0
   ],
-  "beam_shift_mm": -7.0,
+  "beam_shift_mm": 0,
   "manual_initialized": true,
   "marker_body": "Transducer",
   "marker_translation_mm": [

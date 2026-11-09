@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "units": "metres",
+  "saved_utc": "2026-11-05T18:18:07.453700+00:00",
+  "aperture_offset_holder_m": [
+    0.0,
+    0.0,
+    -0.185
+  ],
+  "holder_origin": "Sphere centre 0",
+  "holder_positive_Z": "From sphere centre 0 toward marker 1 centre",
+  "source": "User measured 185 mm, collinear, opposite M1",
+  "beam_orientation_calibrated": false,
+  "note": "Defines aperture centre only. Holder centre remains inferred from supplied marker radii and rear-side assumption.",
+  "last_capture_utc": "2026-11-05T18:19:19.577325+00:00",
+  "last_aperture_reference_mm": [
+    -110.59370384431294,
+    213.61693907228042,
+    96.11391155095215
+  ],
+  "verification_samples": 60,
+  "observed_holder_to_aperture_mm": 185.00000000000003,
+  "beam_direction_confirmed": "Away from holder, opposite M1",
+  "beam_roll_convention": "Transducer X follows geometric holder X; Y chosen for a right-handed basis with beam Z opposite holder Z"
+}

@@ -1,6 +1,7 @@
 """Local MRI loading with explicit RAS+ millimetre display geometry."""
 from dataclasses import dataclass
 from pathlib import Path
+import hashlib
 import numpy as np
 
 MAX_VOXELS = 128_000_000
@@ -13,6 +14,8 @@ class MRIVolume:
     name: str
     note: str = ''
     synthetic: bool = False
+    source_path: str = ''
+    source_sha256: str = ''
 
     @property
     def spacing(self):
@@ -72,11 +75,23 @@ def prepare_volume(data, affine, name, note=''):
     return MRIVolume(result,np.array(image.affine),name,note)
 
 
-def load_nifti(path):
+def load_mri(path):
     import nibabel as nib
-    image=nib.load(str(path))
+    image=nib.load(str(path),mmap=False,keep_file_open=False)
     if len(image.shape)>4 or np.prod(image.shape)>MAX_VOXELS:
         raise ValueError('The MRI is too large or has unsupported dimensions.')
+    if isinstance(image,nib.freesurfer.mghformat.MGHImage):
+        # NiBabel substitutes default geometry when goodRASFlag is absent.
+        # Inspect the original flag before accepting scanner RAS coordinates.
+        with nib.openers.ImageOpener(str(path),'rb') as source:
+            header=source.read(30)
+        if len(header)!=30 or int.from_bytes(header[28:30],'big',signed=True)==0:
+            raise ValueError('The MGH/MGZ file has no valid scanner RAS spatial geometry; its anatomical orientation cannot be verified.')
+        volume=prepare_volume(image.get_fdata(dtype=np.float32),np.array(image.affine),Path(path).name,
+                              'FreeSurfer MGH/MGZ · scanner RAS geometry · millimetres')
+        return attach_source(volume,path)
+    if not isinstance(image,(nib.Nifti1Image,nib.Nifti2Image)):
+        raise ValueError('Load NIfTI (.nii/.nii.gz), FreeSurfer (.mgh/.mgz), or a DICOM series.')
     if not (int(image.header['qform_code']) or int(image.header['sform_code'])):
         raise ValueError('The NIfTI file has no coded spatial transform (qform/sform); its anatomical orientation cannot be verified.')
     units=image.header.get_xyzt_units()[0]
@@ -87,7 +102,23 @@ def load_nifti(path):
         note='Spatial units unspecified: assuming mm. Confirm before registration.'
     affine=np.array(image.affine)
     affine[:3,:]*=scale
-    return prepare_volume(image.get_fdata(dtype=np.float32),affine,Path(path).name,note)
+    return attach_source(prepare_volume(image.get_fdata(dtype=np.float32),affine,Path(path).name,note),path)
+
+
+def file_sha256(path):
+    with open(path,'rb') as stream:
+        return hashlib.file_digest(stream,'sha256').hexdigest()
+
+
+def attach_source(volume,path):
+    volume.source_path=str(Path(path).resolve())
+    volume.source_sha256=file_sha256(path)
+    return volume
+
+
+def load_nifti(path):
+    """Backward-compatible entry point for existing callers."""
+    return load_mri(path)
 
 
 def dicom_series(folder):

@@ -1,4 +1,5 @@
 .venv/
+.runtime/
 env/
 __pycache__/
 *.log
@@ -7,3 +8,18 @@ runtime.json
 settings.ini
 config/*.motive
 config/*.mcal
+
+# MRI / imaging data (keep subject scans out of the repo)
+*.nii
+*.nii.gz
+*.dcm
+*.mgz
+*.mgh
+# CHARM results are cached next to the MRI as <name>_charm/
+*_charm/
+m2m_*/
+
+# Installers and binary dependencies
+*.exe
+*.whl
+*.pyd

@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "units": "metres",
+  "captured_utc": "2026-11-05T17:43:33.712457+00:00",
+  "origin_reference_m": [
+    -0.0232209226069684,
+    -0.0014438862551024445,
+    0.13974943297322084
+  ],
+  "orientation_reference": [
+    [
+      -0.5954582861024413,
+      0.0,
+      0.8033862268622379
+    ],
+    [
+      0.0,
+      1.0,
+      0.0
+    ],
+    [
+      -0.8033862268622379,
+      0.0,
+      -0.5954582861024413
+    ]
+  ],
+  "crown_marker_reference_m": [
+    -0.03410962381003571,
+    0.18155611374489755,
+    0.149387009108835
+  ],
+  "marker_above_crown_mm": 7.5,
+  "mri_crown_ras_mm": [
+    1.2589285714285694,
+    -32.48660714285714,
+    103.5
+  ],
+  "mri_source": "D:\\LIFU\\Skull\\mni_icbm152_lin_nifti\\icbm_avg_152_t1_tal_lin.nii",
+  "mri_sha256": "26eb8bfa36dfbfa38abb9515523049768e33d3148ad448e9c1d58b8ca47cce30",
+  "samples": 200,
+  "crown_jitter_rms_mm": 0.014218867791207472,
+  "reference_edges_mm": [
+    250.03219575140895,
+    199.87935293513212,
+    150.23339187774334
+  ],
+  "assumptions": "Stationary phantom; upright to table normal; nose toward P2 (15/25 cm corner). MRI crown estimated from intensity foreground; review required."
+}
